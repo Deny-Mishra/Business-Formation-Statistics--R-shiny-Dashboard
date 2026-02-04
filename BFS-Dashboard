@@ -1,0 +1,283 @@
+# =========================
+# Libraries
+# =========================
+library(shiny)
+library(dplyr)
+library(readr)
+library(tidyr)
+library(lubridate)
+library(ggplot2)
+library(zoo)
+
+# =========================
+# DATA SOURCE
+# =========================
+bfs_url <- "https://www.census.gov/econ/bfs/csv/bfs_monthly.csv"
+
+# =========================
+# DATA PREPARATION
+# =========================
+prepare_bfs_data <- function() {
+  
+  raw <- read_csv(bfs_url, show_col_types = FALSE)
+  
+  month_cols <- c(
+    "jan","feb","mar","apr","may","jun",
+    "jul","aug","sep","oct","nov","dec"
+  )
+  
+  raw %>%
+    pivot_longer(
+      cols = all_of(month_cols),
+      names_to = "month",
+      values_to = "value"
+    ) %>%
+    mutate(
+      month_num = match(month, month_cols),
+      date = as.Date(paste(year, month_num, "01", sep = "-")),
+      value = as.numeric(value)
+    ) %>%
+    filter(!is.na(value)) %>%
+    arrange(sa, geo, naics_sector, series, date)
+}
+
+# =========================
+# UI
+# =========================
+ui <- fluidPage(
+  
+  titlePanel("Business Formation Statistics (Monthly Explorer)"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      
+      ## Seasonal Adjustment
+      selectInput(
+        "sa",
+        "Seasonal Adjustment:",
+        choices = c(
+          "Seasonally Adjusted (A)" = "A",
+          "Not Seasonally Adjusted (U)" = "U"
+        ),
+        selected = "A"
+      ),
+      
+      ## Geography, Series, NAICS
+      selectInput("geo", "Geography:", choices = NULL, multiple = TRUE),
+      selectInput("series", "Series:", choices = NULL),
+      selectInput("naics", "NAICS Sector:", choices = NULL),
+      
+      ## Metric Selection
+      selectInput(
+        "metric",
+        "Metric:",
+        choices = c(
+          "Level" = "level",
+          "Month-over-Month %" = "mom",
+          "Year-over-Year %" = "yoy",
+          "Moving Average" = "ma"
+        )
+      ),
+      
+      ## Moving Average Window
+      conditionalPanel(
+        condition = "input.metric == 'ma'",
+        selectInput(
+          "ma_window",
+          "Moving Average (Months):",
+          choices = c(3, 6, 9, 12),
+          selected = 3
+        )
+      ),
+      
+      ## Year Range Slider
+      sliderInput(
+        "year_range",
+        "Year Range:",
+        min = 2004,
+        max = 2025,
+        value = c(2018, 2025),
+        sep = ""
+      ),
+      
+      ## Date Range Picker for Top 10 Calculation
+      dateRangeInput(
+        "date_range",
+        "Select Date Range (for Top 10 Geographies):",
+        start = as.Date("2018-01-01"),
+        end = as.Date("2025-12-01"),
+        min = as.Date("2004-01-01"),
+        max = as.Date("2025-12-01"),
+        format = "yyyy-mm"
+      )
+    ),
+    
+    mainPanel(
+      plotOutput("bfs_plot", height = 450),
+      h4("Recent Data"),
+      tableOutput("bfs_table"),
+      h4("Top 10 Geographies for Selected Date Range"),
+      tableOutput("top_states_table")
+    )
+  )
+)
+
+# =========================
+# SERVER
+# =========================
+server <- function(input, output, session) {
+  
+  # Load and prepare BFS data
+  bfs_data <- reactive({
+    prepare_bfs_data()
+  })
+  
+  # Update selectInput options dynamically
+  observe({
+    df <- bfs_data()
+    
+    updateSelectInput(session, "geo",
+                      choices = sort(unique(df$geo)),
+                      selected = "US"
+    )
+    
+    updateSelectInput(session, "series",
+                      choices = sort(unique(df$series)),
+                      selected = unique(df$series)[1]
+    )
+    
+    updateSelectInput(session, "naics",
+                      choices = sort(unique(df$naics_sector)),
+                      selected = "TOTAL"
+    )
+    
+    updateSliderInput(session, "year_range",
+                      min = min(df$year),
+                      max = max(df$year),
+                      value = c(min(df$year), max(df$year))
+    )
+    
+    updateDateRangeInput(session, "date_range",
+                         start = as.Date(paste(min(df$year), "01-01", sep = "-")),
+                         end = as.Date(paste(max(df$year), "12-01", sep = "-")),
+                         min = as.Date(paste(min(df$year), "01-01", sep = "-")),
+                         max = as.Date(paste(max(df$year), "12-01", sep = "-"))
+    )
+  })
+  
+  # Process data for plotting
+  processed_data <- reactive({
+    
+    df <- bfs_data() %>%
+      filter(
+        sa == input$sa,
+        geo %in% input$geo,
+        series == input$series,
+        naics_sector == input$naics,
+        year >= input$year_range[1],
+        year <= input$year_range[2]
+      ) %>%
+      arrange(geo, date)
+    
+    # Transformations based on metric
+    if (input$metric == "mom") {
+      df <- df %>%
+        group_by(geo) %>%
+        mutate(value = (value / lag(value) - 1) * 100) %>%
+        ungroup()
+    }
+    
+    if (input$metric == "yoy") {
+      df <- df %>%
+        group_by(geo) %>%
+        mutate(value = (value / lag(value, 12) - 1) * 100) %>%
+        ungroup()
+    }
+    
+    if (input$metric == "ma") {
+      df <- df %>%
+        group_by(geo) %>%
+        mutate(
+          value = zoo::rollmean(
+            value,
+            k = as.numeric(input$ma_window),
+            fill = NA,
+            align = "right"
+          )
+        ) %>%
+        ungroup()
+    }
+    
+    df
+  })
+  
+  # Top 10 geographies by sum for selected date range
+  top_states_data <- reactive({
+    df <- processed_data() %>%
+      filter(date >= input$date_range[1], date <= input$date_range[2])
+    
+    # Only compute top 10 if user has not selected a specific geography
+    if (length(input$geo) == 1 && input$geo != "US") {
+      return(NULL)
+    }
+    
+    # Exclude "US" from ranking
+    df %>%
+      filter(geo != "US") %>%
+      group_by(geo) %>%
+      summarise(total_value = sum(value, na.rm = TRUE)) %>%
+      arrange(desc(total_value)) %>%
+      mutate(rank = row_number()) %>%
+      slice_head(n = 10)
+  })
+  
+  # =========================
+  # PLOT
+  # =========================
+  output$bfs_plot <- renderPlot({
+    df <- processed_data()
+    req(nrow(df) > 0)
+    
+    ggplot(df, aes(date, value, color = geo)) +
+      geom_line(linewidth = 1) +
+      labs(
+        x = "Date",
+        y = "Value",
+        title = paste(
+          input$series,
+          "|",
+          input$naics,
+          "|",
+          ifelse(input$sa == "A", "Seasonally Adjusted", "Not Adjusted")
+        )
+      ) +
+      theme_minimal()
+  })
+  
+  # =========================
+  # RECENT DATA TABLE
+  # =========================
+  output$bfs_table <- renderTable({
+    processed_data() %>%
+      select(date, geo, value) %>%
+      arrange(desc(date)) %>%
+      head(25)
+  })
+  
+  # =========================
+  # TOP 10 STATES TABLE
+  # =========================
+  output$top_states_table <- renderTable({
+    top_df <- top_states_data()
+    if (is.null(top_df) || nrow(top_df) == 0) {
+      return(data.frame(Message = "Top 10 not available for selected geography"))
+    }
+    top_df %>% select(rank, geo, total_value)
+  })
+  
+}
+
+# =========================
+# RUN APP
+# =========================
+shinyApp(ui, server)
