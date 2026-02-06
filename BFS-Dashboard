@@ -1,12 +1,11 @@
 # =========================
-# BUSINESS FORMATION STATISTICS EXPLORER
+# BUSINESS FORMATION STATISTICS EXPLORER - COMPACT VERSION
 # =========================
 # Advanced Professional Dashboard for BFS Data Analysis
 # Created by Deny Mishraa
 # =========================
 
 # LIBRARIES
-
 library(shiny)
 library(dplyr)
 library(readr)
@@ -21,6 +20,7 @@ library(shinythemes)
 library(shinyWidgets)
 library(RColorBrewer)
 library(viridis)
+library(scales)
 
 # =========================
 # STATE MAPPING
@@ -60,6 +60,38 @@ state_mapping_df <- data.frame(
 
 # Codes to exclude from state-level analysis
 exclude_codes <- c("US", "NO", "MW", "SO", "WE", "PR")
+
+# =========================
+# NAICS SECTOR MAPPING
+# =========================
+# Based on the data provided, here are all available NAICS sectors
+naics_mapping <- data.frame(
+  naics_sector = c("TOTAL", "NAICS11", "NAICS21", "NAICS22", "NAICS23", 
+                   "NAICSMNF", "NAICS42", "NAICSRET", "NAICSTW", "NAICS51",
+                   "NAICS52", "NAICS53", "NAICS54", "NAICS55", "NAICS56",
+                   "NAICS61", "NAICS62", "NAICS71", "NAICS72", "NAICS81",
+                   "NONAICS"),
+  label = c("All Industries", "Agriculture, Forestry, Fishing & Hunting",
+            "Mining, Quarrying, and Oil and Gas Extraction", "Utilities",
+            "Construction", "Manufacturing", "Wholesale Trade", 
+            "Retail Trade", "Transportation and Warehousing", "Information",
+            "Finance and Insurance", "Real Estate and Rental and Leasing",
+            "Professional, Scientific, and Technical Services",
+            "Management of Companies and Enterprises",
+            "Administrative and Support and Waste Management and Remediation Services",
+            "Educational Services", "Health Care and Social Assistance",
+            "Arts, Entertainment, and Recreation", 
+            "Accommodation and Food Services", "Other Services (except Public Administration)",
+            "Non-NAICS"),
+  short_label = c("All Industries", "Agriculture", "Mining", "Utilities",
+                  "Construction", "Manufacturing", "Wholesale Trade",
+                  "Retail Trade", "Transportation", "Information",
+                  "Finance & Insurance", "Real Estate", "Professional Services",
+                  "Management", "Admin Support", "Education", "Healthcare",
+                  "Arts & Entertainment", "Accommodation & Food", "Other Services",
+                  "Non-NAICS"),
+  stringsAsFactors = FALSE
+)
 
 # =========================
 # TRANSFORMATION FUNCTION
@@ -115,58 +147,55 @@ prepare_bfs_data <- function() {
     # Add state names and labels
     df <- df %>%
       left_join(state_mapping_df, by = c("geo" = "code")) %>%
+      left_join(naics_mapping, by = "naics_sector") %>%
       mutate(
         geo_name = ifelse(is.na(name), geo, name),
         is_state = !geo %in% exclude_codes & nchar(geo) == 2,
         
-        # Enhanced series labels
+        # Enhanced series labels with full names
         series_label = case_when(
-          series == "BA_BA" ~ "Business Applications",
-          series == "BF_BF" ~ "Business Formations",
-          series == "BF_PBF" ~ "Projected Business Formations",
-          series == "BF_SBF" ~ "SBA Business Formations",
+          series == "BA_BA" ~ "Business Applications (BA)",
+          series == "BA_CBA" ~ "CBA Applications (CBA)",
+          series == "BA_HBA" ~ "High-Propensity BA (HBA)",
+          series == "BA_WBA" ~ "WBA Applications (WBA)",
+          series == "BF_BF" ~ "Business Formations (BF)",
+          series == "BF_PBF" ~ "Projected Formations (PBF)",
+          series == "BF_PBF4Q" ~ "Projected 4Q (PBF4Q)",
+          series == "BF_PBF8Q" ~ "Projected 8Q (PBF8Q)",
+          series == "BF_SBF" ~ "SBA Formations (SBA)",
+          series == "BF_SBF4Q" ~ "SBA 4Q (SBF4Q)",
+          series == "BF_SBF8Q" ~ "SBA 8Q (SBF8Q)",
           TRUE ~ series
         ),
         
-        # Enhanced NAICS labels
-        naics_label = case_when(
-          naics_sector == "TOTAL" ~ "All Industries",
-          naics_sector == "11" ~ "Agriculture",
-          naics_sector == "21" ~ "Mining",
-          naics_sector == "22" ~ "Utilities",
-          naics_sector == "23" ~ "Construction",
-          naics_sector == "31-33" ~ "Manufacturing",
-          naics_sector == "42" ~ "Wholesale Trade",
-          naics_sector == "44-45" ~ "Retail Trade",
-          naics_sector == "48-49" ~ "Transportation & Warehousing",
-          naics_sector == "51" ~ "Information",
-          naics_sector == "52" ~ "Finance & Insurance",
-          naics_sector == "53" ~ "Real Estate",
-          naics_sector == "54" ~ "Professional Services",
-          naics_sector == "55" ~ "Management",
-          naics_sector == "56" ~ "Admin Support",
-          naics_sector == "61" ~ "Education",
-          naics_sector == "62" ~ "Healthcare",
-          naics_sector == "71" ~ "Arts & Entertainment",
-          naics_sector == "72" ~ "Accommodation & Food",
-          naics_sector == "81" ~ "Other Services",
-          TRUE ~ naics_sector
-        ),
+        # Use NAICS labels from mapping
+        naics_label = ifelse(is.na(label), naics_sector, label),
+        naics_short_label = ifelse(is.na(short_label), naics_sector, short_label),
         
         # Short series labels for display
         series_short = case_when(
           series == "BA_BA" ~ "Applications",
+          series == "BA_CBA" ~ "CBA",
+          series == "BA_HBA" ~ "HBA",
+          series == "BA_WBA" ~ "WBA",
           series == "BF_BF" ~ "Formations",
           series == "BF_PBF" ~ "Projected",
+          series == "BF_PBF4Q" ~ "PBF4Q",
+          series == "BF_PBF8Q" ~ "PBF8Q",
           series == "BF_SBF" ~ "SBA",
+          series == "BF_SBF4Q" ~ "SBF4Q",
+          series == "BF_SBF8Q" ~ "SBF8Q",
           TRUE ~ series
         ),
         
         # Seasonal adjustment label
         sa_label = ifelse(sa == "A", "Seasonally Adjusted", "Not Seasonally Adjusted"),
         
-        # Region grouping
-        display_region = ifelse(is.na(region), "National/Regional", region)
+        # Region grouping - Only main regions
+        display_region = case_when(
+          region %in% c("Northeast", "Midwest", "South", "West") ~ region,
+          TRUE ~ "Other"
+        )
       )
     
     return(df)
@@ -177,278 +206,305 @@ prepare_bfs_data <- function() {
 }
 
 # =========================
-# UI - ENHANCED & SOPHISTICATED
+# SOPHISTICATED COLOR PALETTES
+# =========================
+get_color_palette <- function(n_colors, palette_name = "sophisticated") {
+  if (palette_name == "sophisticated") {
+    # Sophisticated gradient palette
+    colors <- colorRampPalette(c("#2E3192", "#1BFFFF", "#D4145A", "#FBB03B"))(n_colors)
+  } else if (palette_name == "peaceful") {
+    # Peaceful, matching colors
+    colors <- colorRampPalette(c("#4A90E2", "#7B9FCF", "#50E3C2", "#B8E986", "#F5A623"))(n_colors)
+  } else if (palette_name == "gradient") {
+    # Blue gradient
+    colors <- colorRampPalette(c("#E3F2FD", "#90CAF9", "#1976D2", "#0D47A1"))(n_colors)
+  } else {
+    colors <- viridis(n_colors)
+  }
+  return(colors)
+}
+
+# =========================
+# DATE SELECTION UTILITIES
+# =========================
+# Generate month-year selection options
+generate_month_year_options <- function(start_year = 2004, end_year = year(Sys.Date())) {
+  options <- list()
+  for (year in start_year:end_year) {
+    for (month in 1:12) {
+      date <- as.Date(paste(year, month, "01", sep = "-"))
+      if (date <= Sys.Date()) {
+        month_name <- month.abb[month]
+        label <- paste(month_name, year)
+        value <- format(date, "%Y-%m")
+        options[[label]] <- value
+      }
+    }
+  }
+  return(options)
+}
+
+# Get date range from selections
+get_date_range_from_selection <- function(start_selection, end_selection) {
+  start_date <- as.Date(paste0(start_selection, "-01"))
+  end_date <- as.Date(paste0(end_selection, "-01"))
+  # Set end date to last day of the month
+  end_date <- as.Date(paste0(end_selection, "-", days_in_month(end_date)))
+  return(list(start = start_date, end = end_date))
+}
+
+# =========================
+# UI - COMPACT & CLEAN
 # =========================
 ui <- fluidPage(
   theme = shinytheme("flatly"),
   
-  # Custom CSS for sophisticated look
+  # Custom CSS for clean, sophisticated look
   tags$head(
     tags$style(HTML("
-      /* Main Header with Gradient */
+      /* Main Header */
       .main-header-container {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
         color: white;
-        padding: 25px;
-        border-radius: 12px;
-        margin-bottom: 25px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
         position: relative;
-        overflow: hidden;
-      }
-      
-      .main-header-container:before {
-        content: '';
-        position: absolute;
-        top: -50%;
-        left: -50%;
-        width: 200%;
-        height: 200%;
-        background: radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px);
-        background-size: 20px 20px;
-        opacity: 0.2;
-        animation: moveBackground 20s linear infinite;
-      }
-      
-      @keyframes moveBackground {
-        0% { transform: translate(0, 0); }
-        100% { transform: translate(20px, 20px); }
       }
       
       .main-title {
-        font-size: 32px;
-        font-weight: 800;
+        font-size: 22px;
+        font-weight: 600;
         margin: 0;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-        letter-spacing: 0.5px;
+        letter-spacing: 0.2px;
       }
       
       .creator-name {
-        font-size: 14px;
+        font-size: 12px;
         opacity: 0.9;
-        margin-top: 5px;
+        margin-top: 3px;
         font-style: italic;
       }
       
-      /* Enhanced Metric Cards */
-      .metric-card-enhanced {
-        background: linear-gradient(145deg, #ffffff, #f8f9fa);
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 6px 15px rgba(0,0,0,0.08);
-        border: none;
-        transition: all 0.3s ease;
-        position: relative;
-        overflow: hidden;
+      .subtitle {
+        font-size: 11px;
+        opacity: 0.8;
+        margin-top: 2px;
       }
       
-      .metric-card-enhanced:before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 4px;
-        background: linear-gradient(90deg, #667eea, #764ba2);
-      }
-      
-      .metric-card-enhanced:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 12px 25px rgba(0,0,0,0.12);
-      }
-      
-      .metric-value-enhanced {
-        font-size: 32px;
-        font-weight: 700;
-        color: #2c3e50;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-shadow: 1px 1px 3px rgba(0,0,0,0.1);
-      }
-      
-      .metric-label-enhanced {
-        font-size: 12px;
-        color: #7f8c8d;
-        text-transform: uppercase;
-        letter-spacing: 1.5px;
-        font-weight: 600;
-        margin-top: 5px;
-      }
-      
-      /* Enhanced Tabs */
-      .nav-pills > li > a {
-        border-radius: 8px !important;
-        margin: 0 5px;
-        padding: 12px 24px;
-        font-weight: 600;
-        font-size: 14px;
-        transition: all 0.3s ease;
-        border: 2px solid transparent;
-      }
-      
-      .nav-pills > li.active > a {
-        background: linear-gradient(135deg, #667eea, #764ba2) !important;
-        border-color: #667eea;
-        box-shadow: 0 4px 10px rgba(102, 126, 234, 0.3);
-        transform: scale(1.05);
-      }
-      
-      .nav-pills > li > a:hover {
-        background-color: rgba(102, 126, 234, 0.1);
-        border-color: rgba(102, 126, 234, 0.3);
-        transform: translateY(-2px);
-      }
-      
-      /* Sidebar Enhancement */
+      /* Compact Sidebar */
       .well {
-        background: linear-gradient(145deg, #ffffff, #f8f9fa);
-        border-radius: 12px;
-        padding: 25px;
-        box-shadow: 0 6px 15px rgba(0,0,0,0.08);
-        border: none;
+        background: white;
+        border-radius: 6px;
+        padding: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        border: 1px solid #e0e0e0;
       }
       
       /* Form Controls */
       .form-control, .selectize-input {
-        border-radius: 8px;
-        border: 2px solid #e9ecef;
-        transition: all 0.3s ease;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+        font-size: 12px;
+        padding: 6px 10px;
+        height: 32px;
       }
       
-      .form-control:focus, .selectize-input.focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
-      }
-      
-      /* Buttons */
-      .btn-success {
-        background: linear-gradient(135deg, #2ecc71, #27ae60);
-        border: none;
-        border-radius: 8px;
-        padding: 12px 24px;
+      /* Labels */
+      .control-label {
+        font-size: 11px;
         font-weight: 600;
-        transition: all 0.3s ease;
+        margin-bottom: 4px;
+        color: #1a237e;
+        display: block;
       }
       
-      .btn-success:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 15px rgba(46, 204, 113, 0.4);
+      /* Highlight Geography Type */
+      .geo-highlight {
+        background-color: #f8f9fa;
+        border-radius: 4px;
+        padding: 8px;
+        margin-bottom: 10px;
+        border-left: 3px solid #1a237e;
       }
       
-      .btn-primary {
-        background: linear-gradient(135deg, #3498db, #2980b9);
-        border: none;
-        border-radius: 8px;
-        padding: 12px 24px;
+      .geo-type-label {
+        font-size: 11px;
         font-weight: 600;
-        transition: all 0.3s ease;
+        color: #1a237e;
+        margin-bottom: 5px;
       }
       
-      .btn-primary:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 15px rgba(52, 152, 219, 0.4);
+      /* Series Type Highlight */
+      .series-highlight {
+        background-color: #f8f9fa;
+        border-radius: 4px;
+        padding: 8px;
+        margin-bottom: 10px;
+        border-left: 3px solid #4CAF50;
+      }
+      
+      /* Compact Metric Card */
+      .metric-card-enhanced {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-radius: 6px;
+        padding: 10px;
+        margin-bottom: 12px;
+        border: 1px solid #dee2e6;
+      }
+      
+      .metric-value-enhanced {
+        font-size: 20px;
+        font-weight: 700;
+        color: #1a237e;
+        text-align: center;
+      }
+      
+      .metric-label-enhanced {
+        font-size: 10px;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-weight: 500;
+        margin-top: 3px;
+        text-align: center;
+      }
+      
+      /* Compact Tabs */
+      .nav-pills > li > a {
+        border-radius: 4px !important;
+        margin: 0 1px;
+        padding: 6px 12px;
+        font-weight: 500;
+        font-size: 11px;
+      }
+      
+      .nav-pills > li.active > a {
+        background-color: #1a237e !important;
       }
       
       /* Chart Containers */
       .chart-container {
         background: white;
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 25px;
-        box-shadow: 0 6px 15px rgba(0,0,0,0.08);
-        border: 1px solid rgba(0,0,0,0.05);
+        border-radius: 6px;
+        padding: 12px;
+        margin-bottom: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        border: 1px solid #e0e0e0;
       }
       
-      /* Series Type Selector Enhancement */
-      .series-selector-group .btn {
-        width: 100%;
-        margin: 5px 0;
-        padding: 15px;
-        border-radius: 8px;
-        font-size: 13px;
-        border: 2px solid #e9ecef;
-        background: white;
-        color: #495057;
-        transition: all 0.3s ease;
-        text-align: center;
+      /* Geography Selection Buttons */
+      .geo-btn-group {
+        display: flex;
+        gap: 5px;
+        margin-bottom: 10px;
       }
       
-      .series-selector-group .btn:hover {
-        border-color: #667eea;
-        background: rgba(102, 126, 234, 0.05);
-      }
-      
-      .series-selector-group .active {
-        background: linear-gradient(135deg, #667eea, #764ba2) !important;
-        color: white !important;
-        border-color: #667eea !important;
-        box-shadow: 0 4px 10px rgba(102, 126, 234, 0.3);
-      }
-      
-      /* Progress Bar */
-      .progress {
-        height: 8px;
+      .geo-btn {
+        flex: 1;
+        padding: 6px 4px;
+        font-size: 10px;
         border-radius: 4px;
-        margin: 10px 0;
+        border: 1px solid #ddd;
+        background: white;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s;
       }
       
-      .progress-bar {
-        background: linear-gradient(90deg, #667eea, #764ba2);
+      .geo-btn.active {
+        background: #1a237e;
+        color: white;
+        border-color: #1a237e;
+      }
+      
+      .geo-btn:hover {
+        background: #f5f5f5;
+      }
+      
+      /* Small HR */
+      hr {
+        margin: 10px 0;
+        border-color: rgba(0,0,0,0.1);
+      }
+      
+      /* Export Tab Styling */
+      .export-option {
+        background: #f8f9fa;
+        border-radius: 6px;
+        padding: 15px;
+        margin-bottom: 15px;
+        border-left: 4px solid #1a237e;
+      }
+      
+      .export-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #1a237e;
+        margin-bottom: 10px;
+      }
+      
+      .export-description {
+        font-size: 11px;
+        color: #666;
+        margin-bottom: 15px;
+      }
+      
+      .download-btn {
+        width: 100%;
+        margin-bottom: 8px;
       }
     "))
   ),
   
-  # Main Header
+  # Main Header with creator credit
   tags$div(
     class = "main-header-container",
-    tags$h1(class = "main-title", "📊 Business Formation Statistics Explorer"),
+    tags$h1(class = "main-title", "Business Formation Statistics Explorer"),
     tags$div(class = "creator-name", "Created by Deny Mishraa"),
-    tags$div(
-      style = "position: absolute; top: 20px; right: 30px; font-size: 48px; opacity: 0.2;",
-      "📈"
-    )
+    tags$div(class = "subtitle", "U.S. Census Bureau Business Formation Data")
   ),
   
   sidebarLayout(
     sidebarPanel(
       width = 3,
+      style = "padding: 10px;",
       tags$div(
         class = "well",
         
-        # Quick Stats
+        # Geography Type Selection - HIGHLIGHTED
         tags$div(
-          class = "metric-card-enhanced",
-          style = "text-align: center;",
-          tags$div(class = "metric-value-enhanced", textOutput("quick_total")),
-          tags$div(class = "metric-label-enhanced", "Total Formations")
+          class = "geo-highlight",
+          tags$div(class = "geo-type-label", "GEOGRAPHY TYPE"),
+          tags$div(
+            class = "geo-btn-group",
+            tags$button(
+              id = "btn_nat_reg",
+              class = "geo-btn active",
+              onclick = "Shiny.setInputValue('geo_type', 'nat_reg'); $(this).addClass('active').siblings().removeClass('active');",
+              "National/Regional"
+            ),
+            tags$button(
+              id = "btn_states",
+              class = "geo-btn",
+              onclick = "Shiny.setInputValue('geo_type', 'states'); $(this).addClass('active').siblings().removeClass('active');",
+              "State"
+            ),
+            tags$button(
+              id = "btn_multi_states",
+              class = "geo-btn",
+              onclick = "Shiny.setInputValue('geo_type', 'multi_states'); $(this).addClass('active').siblings().removeClass('active');",
+              "Multi-State"
+            )
+          )
         ),
         
-        # Seasonality
-        selectInput("sa", "Seasonal Adjustment:",
-                    choices = c("Seasonally Adjusted" = "A",
-                                "Not Seasonally Adjusted" = "U"),
-                    selected = "A",
-                    width = "100%"),
-        
-        # Geography Type Selector
-        radioGroupButtons(
-          inputId = "geo_type",
-          label = "Geography Type:",
-          choices = c("National/Regional" = "nat_reg",
-                      "State Analysis" = "states",
-                      "Multi-State" = "multi_states"),
-          selected = "nat_reg",
-          status = "primary",
-          justified = TRUE,
-          checkIcon = list(yes = icon("ok", lib = "glyphicon"))
-        ),
-        
-        # Conditional Panels for Geography Selection
+        # Geography Selection based on type
         conditionalPanel(
           condition = "input.geo_type == 'nat_reg'",
-          selectInput("bfs_geo_nat", "Select Geography:",
+          tags$label("Select Geography:", class = "control-label"),
+          selectInput("bfs_geo_nat", NULL,
                       choices = c("U.S. Total" = "US",
                                   "Northeast Region" = "NO",
                                   "Midwest Region" = "MW",
@@ -460,7 +516,8 @@ ui <- fluidPage(
         
         conditionalPanel(
           condition = "input.geo_type == 'states'",
-          selectInput("bfs_geo_state", "Select State:",
+          tags$label("Select State:", class = "control-label"),
+          selectInput("bfs_geo_state", NULL,
                       choices = setNames(
                         state_mapping_df$code[!state_mapping_df$code %in% exclude_codes],
                         state_mapping_df$name[!state_mapping_df$code %in% exclude_codes]
@@ -471,7 +528,8 @@ ui <- fluidPage(
         
         conditionalPanel(
           condition = "input.geo_type == 'multi_states'",
-          selectizeInput("bfs_geo_multi", "Compare States:",
+          tags$label("Compare States:", class = "control-label"),
+          selectizeInput("bfs_geo_multi", NULL,
                          choices = setNames(
                            state_mapping_df$code[!state_mapping_df$code %in% exclude_codes],
                            state_mapping_df$name[!state_mapping_df$code %in% exclude_codes]
@@ -479,55 +537,75 @@ ui <- fluidPage(
                          multiple = TRUE,
                          selected = c("CA", "TX", "NY", "FL"),
                          options = list(maxItems = 5,
-                                        placeholder = 'Select up to 5 states...'))
+                                        placeholder = 'Select up to 5 states...',
+                                        dropdownParent = 'body'))
         ),
         
-        # Series Type - Enhanced with Button Group
+        # Series Type Selection - DROPDOWN
         tags$div(
-          style = "margin: 15px 0;",
-          tags$label("Series Type:", style = "font-weight: 600; margin-bottom: 8px; display: block;"),
+          class = "series-highlight",
+          tags$label("SERIES TYPE", class = "control-label"),
+          selectInput("bfs_series", NULL,
+                      choices = c("Business Applications (BA)" = "BA_BA",
+                                  "CBA Applications (CBA)" = "BA_CBA",
+                                  "High-Propensity BA (HBA)" = "BA_HBA",
+                                  "WBA Applications (WBA)" = "BA_WBA",
+                                  "Business Formations (BF)" = "BF_BF",
+                                  "Projected Formations (PBF)" = "BF_PBF",
+                                  "Projected 4Q (PBF4Q)" = "BF_PBF4Q",
+                                  "Projected 8Q (PBF8Q)" = "BF_PBF8Q",
+                                  "SBA Formations (SBA)" = "BF_SBF",
+                                  "SBA 4Q (SBF4Q)" = "BF_SBF4Q",
+                                  "SBA 8Q (SBF8Q)" = "BF_SBF8Q"),
+                      selected = "BA_BA",
+                      width = "100%")
+        ),
+        
+        # Industry Sector - Only show for National level
+        conditionalPanel(
+          condition = "input.geo_type == 'nat_reg' && input.bfs_geo_nat == 'US'",
+          tags$label("Industry Sector:", class = "control-label"),
+          selectInput("bfs_naics", NULL, 
+                      choices = setNames(
+                        naics_mapping$naics_sector,
+                        naics_mapping$short_label
+                      ),
+                      selected = "TOTAL",
+                      width = "100%")
+        ),
+        
+        # For state and multi-state, always use TOTAL
+        conditionalPanel(
+          condition = "input.geo_type == 'states' || input.geo_type == 'multi_states'",
           tags$div(
-            class = "series-selector-group",
-            radioGroupButtons(
-              inputId = "bfs_series",
-              label = NULL,
-              choices = c("Applications" = "BA_BA",
-                          "Formations" = "BF_BF",
-                          "Projected" = "BF_PBF",
-                          "SBA" = "BF_SBF"),
-              selected = "BA_BA",
-              status = "primary",
-              justified = TRUE,
-              size = "sm",
-              direction = "vertical",
-              checkIcon = list(yes = icon("check"))
-            )
+            style = "background: #e8f4f8; padding: 8px; border-radius: 4px; margin-bottom: 10px;",
+            tags$div(style = "font-size: 11px; font-weight: 600; color: #1a237e;", 
+                     "Industry Sector:"),
+            tags$div(style = "font-size: 10px; color: #666;", 
+                     "All Industries (State level data only available at total industry level)")
           )
         ),
         
-        # Industry Sector
-        selectInput("bfs_naics", "Industry Sector:", 
-                    choices = c("All Industries" = "TOTAL",
-                                "Agriculture" = "11",
-                                "Construction" = "23",
-                                "Manufacturing" = "31-33",
-                                "Retail Trade" = "44-45",
-                                "Professional Services" = "54",
-                                "Healthcare" = "62",
-                                "Accommodation & Food" = "72"),
-                    selected = "TOTAL",
-                    width = "100%"),
-        
         # Date Range
-        sliderInput("bfs_year_range", "Year Range:", 
+        tags$label("Year Range:", class = "control-label"),
+        sliderInput("bfs_year_range", NULL, 
                     min = 2004, max = year(Sys.Date()), 
                     value = c(2018, year(Sys.Date())), 
                     sep = "",
                     ticks = TRUE,
                     width = "100%"),
         
+        # Seasonality
+        tags$label("Seasonal Adjustment:", class = "control-label"),
+        selectInput("sa", NULL,
+                    choices = c("Seasonally Adjusted" = "A",
+                                "Not Seasonally Adjusted" = "U"),
+                    selected = "A",
+                    width = "100%"),
+        
         # Transformation
-        selectInput("bfs_transform", "Data Transformation:",
+        tags$label("Data Transformation:", class = "control-label"),
+        selectInput("bfs_transform", NULL,
                     choices = c("Level" = "level",
                                 "Month-over-Month %" = "mom",
                                 "Year-over-Year %" = "yoy",
@@ -539,35 +617,41 @@ ui <- fluidPage(
         # MA Window if selected
         conditionalPanel(
           condition = "input.bfs_transform == 'ma'",
-          sliderInput("bfs_ma_window", "Moving Average Window:", 
+          tags$label("Moving Average Window:", class = "control-label"),
+          sliderInput("bfs_ma_window", NULL, 
                       min = 3, max = 12, value = 3, step = 1,
                       width = "100%")
         ),
         
         # Fetch Button
-        actionButton("fetch_data_bfs", "🚀 Load & Analyze", 
+        actionButton("fetch_data_bfs", "Load & Analyze Data", 
                      class = "btn-success",
-                     style = "width: 100%; margin-top: 20px; padding: 15px; font-size: 16px;"),
+                     style = "width: 100%; margin-top: 12px; padding: 8px; font-size: 12px; font-weight: 600;"),
         
-        tags$hr(style = "border-color: rgba(0,0,0,0.1);"),
+        tags$hr(),
         
-        # Quick Stats
+        # Quick Stats - TOTAL THAT MATCHES SELECTION
         tags$div(
-          style = "text-align: center; margin-top: 15px;",
+          class = "metric-card-enhanced",
+          tags$div(class = "metric-value-enhanced", textOutput("quick_total_correct")),
+          tags$div(class = "metric-label-enhanced", 
+                   textOutput("quick_total_label"))
+        ),
+        
+        # Additional Stats
+        tags$div(
+          style = "display: flex; justify-content: space-between; font-size: 10px; margin-top: 8px;",
           tags$div(
-            style = "display: flex; justify-content: space-between;",
-            tags$div(
-              style = "flex: 1; padding: 10px;",
-              tags$div(style = "font-size: 18px; font-weight: bold; color: #2c3e50;", 
-                       textOutput("quick_avg")),
-              tags$div(style = "font-size: 11px; color: #7f8c8d;", "Avg Monthly")
-            ),
-            tags$div(
-              style = "flex: 1; padding: 10px; border-left: 1px solid #eee;",
-              tags$div(style = "font-size: 18px; font-weight: bold; color: #2c3e50;", 
-                       textOutput("quick_growth")),
-              tags$div(style = "font-size: 11px; color: #7f8c8d;", "YoY Growth")
-            )
+            style = "flex: 1; padding: 4px;",
+            tags$div(style = "font-size: 12px; font-weight: 600; color: #1a237e;", 
+                     textOutput("quick_avg")),
+            tags$div(style = "font-size: 9px; color: #666;", "Avg Monthly")
+          ),
+          tags$div(
+            style = "flex: 1; padding: 4px; border-left: 1px solid #eee;",
+            tags$div(style = "font-size: 12px; font-weight: 600; color: #1a237e;", 
+                     textOutput("quick_growth")),
+            tags$div(style = "font-size: 9px; color: #666;", "YoY Growth")
           )
         )
       )
@@ -575,76 +659,118 @@ ui <- fluidPage(
     
     mainPanel(
       width = 9,
+      style = "padding: 10px;",
       tabsetPanel(
         id = "main_tabs",
         type = "pills",
         
         # Tab 1: Time Series Analysis
         tabPanel(
-          "📈 Time Series Analysis",
+          "Time Series",
           tags$div(
             class = "chart-container",
-            plotlyOutput("main_plot", height = "550px")
+            plotlyOutput("main_plot", height = "500px")
           ),
           conditionalPanel(
             condition = "input.bfs_series == 'BA_BA' || input.bfs_series == 'BF_BF'",
             tags$div(
               class = "chart-container",
-              plotlyOutput("quarterly_sparkline", height = "300px")
+              plotlyOutput("quarterly_performance", height = "300px")
             )
           )
         ),
         
         # Tab 2: Statewide Ranking
         tabPanel(
-          "🏆 Statewide Ranking",
+          "State Rankings",
+          fluidRow(
+            column(12,
+                   tags$div(
+                     style = "margin-bottom: 12px;",
+                     radioGroupButtons(
+                       inputId = "ranking_type",
+                       label = "Ranking Period:",
+                       choices = c("Main Date Range" = "main_range",
+                                   "Custom Range" = "custom_range"),
+                       selected = "main_range",
+                       size = "xs",
+                       status = "primary"
+                     ),
+                     conditionalPanel(
+                       condition = "input.ranking_type == 'custom_range'",
+                       tags$div(
+                         style = "background: #f8f9fa; padding: 10px; border-radius: 4px; margin-bottom: 10px;",
+                         fluidRow(
+                           column(6,
+                                  tags$label("Start Date:", class = "control-label"),
+                                  selectInput("ranking_start_month", NULL,
+                                              choices = generate_month_year_options(),
+                                              selected = format(Sys.Date() - months(12), "%Y-%m"))
+                           ),
+                           column(6,
+                                  tags$label("End Date:", class = "control-label"),
+                                  selectInput("ranking_end_month", NULL,
+                                              choices = generate_month_year_options(),
+                                              selected = format(Sys.Date(), "%Y-%m"))
+                           )
+                         ),
+                         tags$div(
+                           style = "text-align: center; margin-top: 8px;",
+                           actionButton("apply_custom_range", "Apply Custom Range", 
+                                        class = "btn-primary btn-xs")
+                         )
+                       )
+                     )
+                   )
+            )
+          ),
           fluidRow(
             column(6,
                    tags$div(
                      class = "chart-container",
-                     plotlyOutput("top_states_bar", height = "500px")
+                     plotlyOutput("top_states_bar", height = "450px")
                    )
             ),
             column(6,
                    tags$div(
                      class = "chart-container",
-                     plotlyOutput("geographic_heatmap", height = "500px")
+                     plotlyOutput("geographic_heatmap", height = "450px")
                    )
             )
           ),
           tags$div(
             class = "chart-container",
-            plotlyOutput("regional_comparison", height = "400px")
+            plotlyOutput("regional_comparison", height = "350px")
           )
         ),
         
-        # Tab 3: Industry Analysis (Conditional - National Only)
+        # Tab 3: Industry Analysis (National Only)
         conditionalPanel(
           condition = "input.geo_type == 'nat_reg' && input.bfs_geo_nat == 'US'",
           tabPanel(
-            "🏢 Industry Analysis",
+            "Industry Analysis",
             tags$div(
               class = "chart-container",
-              plotlyOutput("industry_trend", height = "500px")
+              plotlyOutput("industry_trend", height = "450px")
             ),
             tags$div(
               class = "chart-container",
-              plotlyOutput("industry_pie", height = "500px")
+              plotlyOutput("industry_pie", height = "450px")
             )
           )
         ),
         
         # Tab 4: Statistical Summary
         tabPanel(
-          "📊 Statistical Summary",
+          "Statistics",
           tags$div(
             class = "chart-container",
             fluidRow(
               column(6,
-                     plotlyOutput("box_plot", height = "350px")
+                     plotlyOutput("box_plot", height = "300px")
               ),
               column(6,
-                     plotlyOutput("histogram", height = "350px")
+                     plotlyOutput("histogram", height = "300px")
               )
             )
           ),
@@ -656,53 +782,100 @@ ui <- fluidPage(
         
         # Tab 5: Data Explorer
         tabPanel(
-          "📋 Data Explorer",
+          "Data",
           tags$div(
             class = "chart-container",
-            style = "padding: 0;",
+            style = "padding: 8px;",
             DTOutput("data_table")
           )
         ),
         
-        # Tab 6: Export
+        # NEW TAB: Export Data
         tabPanel(
-          "💾 Export",
+          "Export",
           tags$div(
             class = "chart-container",
-            tags$h4("Export Data & Visualizations", style = "margin-top: 0;"),
-            tags$br(),
+            tags$h4("Export Data", style = "color: #1a237e; margin-top: 0;"),
             
-            fluidRow(
-              column(6,
-                     tags$div(
-                       class = "well",
-                       style = "background: rgba(102, 126, 234, 0.05);",
-                       tags$h5("📥 Export Data"),
-                       tags$p("Download the filtered dataset for further analysis"),
-                       br(),
-                       downloadButton("download_csv", "Download CSV", 
-                                      class = "btn-primary",
-                                      style = "width: 100%; margin-bottom: 10px;"),
-                       downloadButton("download_excel", "Download Excel", 
-                                      class = "btn-primary",
-                                      style = "width: 100%;")
-                     )
+            # Export Option 1: Current Filtered Data
+            tags$div(
+              class = "export-option",
+              tags$div(class = "export-title", "Export Filtered Data"),
+              tags$div(class = "export-description", 
+                       "Download the currently filtered dataset with all selected parameters."),
+              
+              fluidRow(
+                column(6,
+                       downloadButton("download_csv", "Download as CSV", 
+                                      class = "btn-primary download-btn")
+                ),
+                column(6,
+                       downloadButton("download_excel", "Download as Excel", 
+                                      class = "btn-success download-btn")
+                )
+              )
+            ),
+            
+            # Export Option 2: Full Dataset
+            tags$div(
+              class = "export-option",
+              tags$div(class = "export-title", "Export Full Dataset"),
+              tags$div(class = "export-description", 
+                       "Download the complete Business Formation Statistics dataset from the U.S. Census Bureau."),
+              
+              fluidRow(
+                column(6,
+                       downloadButton("download_full_csv", "Download Full CSV", 
+                                      class = "btn-info download-btn")
+                ),
+                column(6,
+                       downloadButton("download_full_excel", "Download Full Excel", 
+                                      class = "btn-info download-btn")
+                )
+              )
+            ),
+            
+            # Export Option 3: Custom Export
+            tags$div(
+              class = "export-option",
+              tags$div(class = "export-title", "Custom Export Options"),
+              tags$div(class = "export-description", 
+                       "Select specific data ranges and formats for export."),
+              
+              fluidRow(
+                column(4,
+                       tags$label("Start Date:", class = "control-label"),
+                       selectInput("export_start", NULL,
+                                   choices = generate_month_year_options(),
+                                   selected = "2004-01")
+                ),
+                column(4,
+                       tags$label("End Date:", class = "control-label"),
+                       selectInput("export_end", NULL,
+                                   choices = generate_month_year_options(),
+                                   selected = format(Sys.Date(), "%Y-%m"))
+                ),
+                column(4,
+                       tags$label("File Format:", class = "control-label"),
+                       selectInput("export_format", NULL,
+                                   choices = c("CSV", "Excel", "JSON"),
+                                   selected = "CSV")
+                )
               ),
-              column(6,
-                     tags$div(
-                       class = "well",
-                       style = "background: rgba(46, 204, 113, 0.05);",
-                       tags$h5("🖼️ Export Charts"),
-                       tags$p("Save visualizations as high-quality images"),
-                       br(),
-                       selectInput("export_chart", "Select Chart:",
-                                   choices = c("Time Series Plot" = "main",
-                                               "Top States Chart" = "top_states",
-                                               "Geographic Heatmap" = "heatmap")),
-                       downloadButton("download_chart", "Download as PNG", 
-                                      class = "btn-success",
-                                      style = "width: 100%;")
-                     )
+              
+              tags$div(
+                style = "text-align: center; margin-top: 15px;",
+                actionButton("generate_export", "Generate Custom Export", 
+                             class = "btn-warning",
+                             style = "width: 80%;")
+              ),
+              
+              conditionalPanel(
+                condition = "input.generate_export > 0",
+                tags$div(
+                  style = "margin-top: 15px; text-align: center;",
+                  uiOutput("custom_export_ui")
+                )
               )
             )
           )
@@ -713,36 +886,45 @@ ui <- fluidPage(
 )
 
 # =========================
-# SERVER - ENHANCED & SOPHISTICATED
+# SERVER - WITH FIXED TOTAL CALCULATION
 # =========================
 server <- function(input, output, session) {
   
   # Initialize BFS data with caching
   bfs_data_cache <- reactiveVal(NULL)
   
+  # Reactive value for custom date range
+  custom_date_range <- reactiveVal(NULL)
+  
+  # Reactive value for geography type
+  geo_type <- reactiveVal("nat_reg")
+  
+  # Update geography type from button clicks
+  observeEvent(input$geo_type, {
+    geo_type(input$geo_type)
+  })
+  
+  # Initialize with default
+  geo_type("nat_reg")
+  
   observe({
-    # Load data once at startup
     if (is.null(bfs_data_cache())) {
       tryCatch({
         showNotification("Loading BFS data from Census Bureau...", 
                          type = "default", 
-                         duration = 3)
+                         duration = 2)
         
         data <- prepare_bfs_data()
         if (!is.null(data)) {
           bfs_data_cache(data)
           showNotification("BFS data loaded successfully!", 
                            type = "success", 
-                           duration = 2)
-        } else {
-          showNotification("Failed to load BFS data. Please check your connection.",
-                           type = "error", 
-                           duration = 5)
+                           duration = 1)
         }
       }, error = function(e) {
         showNotification(paste("Error loading data:", e$message),
                          type = "error",
-                         duration = 5)
+                         duration = 3)
       })
     }
   })
@@ -753,36 +935,130 @@ server <- function(input, output, session) {
     bfs_data_cache()
   })
   
-  # Get selected geography based on input type
-  selected_geography <- reactive({
-    req(input$geo_type)
+  # Apply custom date range
+  observeEvent(input$apply_custom_range, {
+    req(input$ranking_start_month, input$ranking_end_month)
     
-    if (input$geo_type == "nat_reg") {
+    date_range <- get_date_range_from_selection(
+      input$ranking_start_month, 
+      input$ranking_end_month
+    )
+    
+    custom_date_range(date_range)
+    
+    showNotification(
+      sprintf("Custom range applied: %s to %s", 
+              format(date_range$start, "%b %Y"),
+              format(date_range$end, "%b %Y")),
+      type = "success",
+      duration = 2
+    )
+  })
+  
+  # Get selected geography
+  selected_geography <- reactive({
+    req(geo_type())
+    
+    if (geo_type() == "nat_reg") {
       req(input$bfs_geo_nat)
       input$bfs_geo_nat
-    } else if (input$geo_type == "states") {
+    } else if (geo_type() == "states") {
       req(input$bfs_geo_state)
       input$bfs_geo_state
-    } else if (input$geo_type == "multi_states") {
+    } else if (geo_type() == "multi_states") {
       req(input$bfs_geo_multi)
       input$bfs_geo_multi
     } else {
-      "US"  # Default fallback
+      "US"
     }
   })
   
-  # Quick stats outputs
-  output$quick_total <- renderText({
+  # Get NAICS sector based on selection
+  selected_naics <- reactive({
+    if (geo_type() == "nat_reg" && input$bfs_geo_nat == "US") {
+      # For national level, use selected NAICS
+      req(input$bfs_naics)
+      input$bfs_naics
+    } else {
+      # For state and multi-state, always use TOTAL
+      "TOTAL"
+    }
+  })
+  
+  # Get ranking date range
+  ranking_date_range <- reactive({
+    if (input$ranking_type == "main_range") {
+      start_date <- as.Date(paste0(input$bfs_year_range[1], "-01-01"))
+      end_date <- as.Date(paste0(input$bfs_year_range[2], "-12-31"))
+    } else {
+      req(custom_date_range())
+      date_range <- custom_date_range()
+      start_date <- date_range$start
+      end_date <- date_range$end
+    }
+    return(list(start = start_date, end = end_date))
+  })
+  
+  # Filtered data reactive
+  filtered_data <- eventReactive(input$fetch_data_bfs, {
+    req(bfs_data(), selected_geography(), input$bfs_series)
+    
+    tryCatch({
+      selected_geo <- selected_geography()
+      selected_naics_sector <- selected_naics()
+      
+      df <- bfs_data() %>%
+        filter(
+          sa == input$sa,
+          geo %in% selected_geo,
+          series == input$bfs_series,
+          naics_sector == selected_naics_sector,
+          year >= input$bfs_year_range[1],
+          year <= input$bfs_year_range[2]
+        ) %>%
+        arrange(geo, date)
+      
+      if (nrow(df) == 0) {
+        showNotification("No data available for selected filters", 
+                         type = "warning", 
+                         duration = 2)
+        return(NULL)
+      }
+      
+      apply_transform(df, "value", input$bfs_transform,
+                      ifelse(is.null(input$bfs_ma_window), 3, input$bfs_ma_window))
+      
+    }, error = function(e) {
+      showNotification(paste("Error:", e$message), 
+                       type = "error", 
+                       duration = 3)
+      return(NULL)
+    })
+  })
+  
+  # CORRECT TOTAL CALCULATION - matches state ranking
+  output$quick_total_correct <- renderText({
     df <- filtered_data()
     if (is.null(df) || nrow(df) == 0) return("0")
     
+    # Calculate total for selected geography, series, and time period
     total <- sum(df$value, na.rm = TRUE)
-    if (total >= 1e6) {
-      paste0(round(total/1e6, 1), "M")
-    } else if (total >= 1e3) {
-      paste0(round(total/1e3, 1), "K")
+    format(total, big.mark = ",", scientific = FALSE)
+  })
+  
+  output$quick_total_label <- renderText({
+    geo <- selected_geography()
+    series_name <- input$bfs_series
+    
+    if (length(geo) > 1) {
+      paste("Total for", length(geo), "states")
     } else {
-      format(total, big.mark = ",")
+      geo_name <- if (geo %in% state_mapping_df$code) {
+        state_mapping_df$name[state_mapping_df$code == geo][1]
+      } else {
+        geo
+      }
+      paste("Total for", geo_name)
     }
   })
   
@@ -791,13 +1067,7 @@ server <- function(input, output, session) {
     if (is.null(df) || nrow(df) == 0) return("0")
     
     avg <- mean(df$value, na.rm = TRUE)
-    if (avg >= 1e6) {
-      paste0(round(avg/1e6, 1), "M")
-    } else if (avg >= 1e3) {
-      paste0(round(avg/1e3, 1), "K")
-    } else {
-      format(round(avg), big.mark = ",")
-    }
+    format(round(avg), big.mark = ",", scientific = FALSE)
   })
   
   output$quick_growth <- renderText({
@@ -813,64 +1083,284 @@ server <- function(input, output, session) {
     sprintf("%+.1f%%", growth)
   })
   
-  # Filtered data reactive
-  filtered_data <- eventReactive(input$fetch_data_bfs, {
-    req(bfs_data(), selected_geography(), input$bfs_series, input$bfs_naics)
-    
-    tryCatch({
-      # Get selected geography
-      selected_geo <- selected_geography()
+  # =========================
+  # DOWNLOAD HANDLERS - EXPORT TAB
+  # =========================
+  
+  # Download current filtered data as CSV
+  output$download_csv <- downloadHandler(
+    filename = function() {
+      paste0("BFS_Filtered_Data_", format(Sys.Date(), "%Y%m%d"), ".csv")
+    },
+    content = function(file) {
+      df <- filtered_data()
+      req(df)
       
-      df <- bfs_data() %>%
-        filter(
-          sa == input$sa,
-          geo %in% selected_geo,
-          series == input$bfs_series,
-          naics_sector == input$bfs_naics,
-          year >= input$bfs_year_range[1],
-          year <= input$bfs_year_range[2]
+      export_df <- df %>%
+        mutate(
+          State = geo_name,
+          `State Code` = geo,
+          Year = year(date),
+          Month = month(date, label = TRUE, abbr = TRUE),
+          `Business Type` = series_label,
+          Industry = naics_label,
+          `Seasonal Adjustment` = sa_label,
+          Value = round(value),
+          `Transformed Value` = round(transformed_value, 2)
         ) %>%
-        arrange(geo, date)
+        select(Date = date, State, `State Code`, Year, Month,
+               `Business Type`, Industry, `Seasonal Adjustment`,
+               Value, `Transformed Value`)
       
-      if (nrow(df) == 0) {
-        showNotification("No data available for selected filters", 
-                         type = "warning", 
-                         duration = 3)
-        return(NULL)
+      write.csv(export_df, file, row.names = FALSE)
+    }
+  )
+  
+  # Download current filtered data as Excel
+  output$download_excel <- downloadHandler(
+    filename = function() {
+      paste0("BFS_Filtered_Data_", format(Sys.Date(), "%Y%m%d"), ".xlsx")
+    },
+    content = function(file) {
+      df <- filtered_data()
+      req(df)
+      
+      export_df <- df %>%
+        mutate(
+          State = geo_name,
+          `State Code` = geo,
+          Year = year(date),
+          Month = month(date, label = TRUE, abbr = TRUE),
+          `Business Type` = series_label,
+          Industry = naics_label,
+          `Seasonal Adjustment` = sa_label,
+          Value = round(value),
+          `Transformed Value` = round(transformed_value, 2)
+        ) %>%
+        select(Date = date, State, `State Code`, Year, Month,
+               `Business Type`, Industry, `Seasonal Adjustment`,
+               Value, `Transformed Value`)
+      
+      if (!requireNamespace("writexl", quietly = TRUE)) {
+        showNotification("Please install the writexl package: install.packages('writexl')",
+                         type = "error", duration = 10)
+        return()
       }
       
-      # Apply transformation
-      apply_transform(df, "value", input$bfs_transform,
-                      ifelse(is.null(input$bfs_ma_window), 3, input$bfs_ma_window))
+      writexl::write_xlsx(export_df, file)
+    }
+  )
+  
+  # Download full dataset as CSV
+  output$download_full_csv <- downloadHandler(
+    filename = function() {
+      paste0("BFS_Full_Dataset_", format(Sys.Date(), "%Y%m%d"), ".csv")
+    },
+    content = function(file) {
+      df <- bfs_data()
+      req(df)
       
-    }, error = function(e) {
-      showNotification(paste("Error:", e$message), 
-                       type = "error", 
-                       duration = 10)
-      return(NULL)
-    })
+      export_df <- df %>%
+        mutate(
+          State = geo_name,
+          `State Code` = geo,
+          Year = year(date),
+          Month = month(date, label = TRUE, abbr = TRUE),
+          `Business Type` = series_label,
+          Industry = naics_label,
+          `Seasonal Adjustment` = sa_label,
+          Value = round(value)
+        ) %>%
+        select(Date = date, State, `State Code`, Year, Month,
+               `Business Type`, Industry, `Seasonal Adjustment`,
+               Value)
+      
+      write.csv(export_df, file, row.names = FALSE)
+    }
+  )
+  
+  # Download full dataset as Excel
+  output$download_full_excel <- downloadHandler(
+    filename = function() {
+      paste0("BFS_Full_Dataset_", format(Sys.Date(), "%Y%m%d"), ".xlsx")
+    },
+    content = function(file) {
+      df <- bfs_data()
+      req(df)
+      
+      export_df <- df %>%
+        mutate(
+          State = geo_name,
+          `State Code` = geo,
+          Year = year(date),
+          Month = month(date, label = TRUE, abbr = TRUE),
+          `Business Type` = series_label,
+          Industry = naics_label,
+          `Seasonal Adjustment` = sa_label,
+          Value = round(value)
+        ) %>%
+        select(Date = date, State, `State Code`, Year, Month,
+               `Business Type`, Industry, `Seasonal Adjustment`,
+               Value)
+      
+      if (!requireNamespace("writexl", quietly = TRUE)) {
+        showNotification("Please install the writexl package: install.packages('writexl')",
+                         type = "error", duration = 10)
+        return()
+      }
+      
+      writexl::write_xlsx(export_df, file)
+    }
+  )
+  
+  # Custom export UI
+  output$custom_export_ui <- renderUI({
+    req(input$export_format)
+    
+    format <- input$export_format
+    
+    if (format == "CSV") {
+      downloadButton("download_custom_csv", "Download Custom CSV Export", 
+                     class = "btn-warning download-btn")
+    } else if (format == "Excel") {
+      downloadButton("download_custom_excel", "Download Custom Excel Export", 
+                     class = "btn-warning download-btn")
+    } else if (format == "JSON") {
+      downloadButton("download_custom_json", "Download Custom JSON Export", 
+                     class = "btn-warning download-btn")
+    }
   })
   
+  # Custom export CSV
+  output$download_custom_csv <- downloadHandler(
+    filename = function() {
+      paste0("BFS_Custom_Export_", input$export_start, "_to_", input$export_end, ".csv")
+    },
+    content = function(file) {
+      df <- bfs_data()
+      req(df)
+      
+      # Fix the filter syntax - calculate the end date properly
+      end_date_with_day <- as.Date(paste0(input$export_end, "-", 
+                                          days_in_month(as.Date(paste0(input$export_end, "-01")))))
+      
+      export_df <- df %>%
+        filter(
+          date >= as.Date(paste0(input$export_start, "-01")),
+          date <= end_date_with_day
+        ) %>%
+        mutate(
+          State = geo_name,
+          `State Code` = geo,
+          Year = year(date),
+          Month = month(date, label = TRUE, abbr = TRUE),
+          `Business Type` = series_label,
+          Industry = naics_label,
+          `Seasonal Adjustment` = sa_label,
+          Value = round(value)
+        ) %>%
+        select(Date = date, State, `State Code`, Year, Month,
+               `Business Type`, Industry, `Seasonal Adjustment`,
+               Value)
+      
+      write.csv(export_df, file, row.names = FALSE)
+    }
+  )
+  
+  # Custom export Excel
+  output$download_custom_excel <- downloadHandler(
+    filename = function() {
+      paste0("BFS_Custom_Export_", input$export_start, "_to_", input$export_end, ".xlsx")
+    },
+    content = function(file) {
+      df <- bfs_data()
+      req(df)
+      
+      # Fix the filter syntax - calculate the end date properly
+      end_date_with_day <- as.Date(paste0(input$export_end, "-", 
+                                          days_in_month(as.Date(paste0(input$export_end, "-01")))))
+      
+      export_df <- df %>%
+        filter(
+          date >= as.Date(paste0(input$export_start, "-01")),
+          date <= end_date_with_day
+        ) %>%
+        mutate(
+          State = geo_name,
+          `State Code` = geo,
+          Year = year(date),
+          Month = month(date, label = TRUE, abbr = TRUE),
+          `Business Type` = series_label,
+          Industry = naics_label,
+          `Seasonal Adjustment` = sa_label,
+          Value = round(value)
+        ) %>%
+        select(Date = date, State, `State Code`, Year, Month,
+               `Business Type`, Industry, `Seasonal Adjustment`,
+               Value)
+      
+      if (!requireNamespace("writexl", quietly = TRUE)) {
+        showNotification("Please install the writexl package: install.packages('writexl')",
+                         type = "error", duration = 10)
+        return()
+      }
+      
+      writexl::write_xlsx(export_df, file)
+    }
+  )
+  
+  # Custom export JSON
+  output$download_custom_json <- downloadHandler(
+    filename = function() {
+      paste0("BFS_Custom_Export_", input$export_start, "_to_", input$export_end, ".json")
+    },
+    content = function(file) {
+      df <- bfs_data()
+      req(df)
+      
+      # Fix the filter syntax - calculate the end date properly
+      end_date_with_day <- as.Date(paste0(input$export_end, "-", 
+                                          days_in_month(as.Date(paste0(input$export_end, "-01")))))
+      
+      export_df <- df %>%
+        filter(
+          date >= as.Date(paste0(input$export_start, "-01")),
+          date <= end_date_with_day
+        ) %>%
+        mutate(
+          State = geo_name,
+          `State Code` = geo,
+          Year = year(date),
+          Month = month(date, label = TRUE, abbr = TRUE),
+          `Business Type` = series_label,
+          Industry = naics_label,
+          `Seasonal Adjustment` = sa_label,
+          Value = round(value)
+        ) %>%
+        select(Date = date, State, `State Code`, Year, Month,
+               `Business Type`, Industry, `Seasonal Adjustment`,
+               Value)
+      
+      jsonlite::write_json(export_df, file, pretty = TRUE)
+    }
+  )
+  
   # =========================
-  # MAIN PLOT - Time Series
+  # MAIN PLOT
   # =========================
   output$main_plot <- renderPlotly({
     df <- filtered_data()
     req(df, nrow(df) > 0)
     
-    # Prepare data
     plot_data <- df %>%
       mutate(
         display_name = ifelse(is.na(geo_name), geo, geo_name),
-        year = year(date),
-        quarter = paste("Q", quarter(date)),
-        month = month(date, label = TRUE, abbr = FALSE)
+        date_label = format(date, "%b %Y")
       )
     
-    # Create a sophisticated color palette
-    colors <- viridis::viridis(min(8, length(unique(plot_data$geo))))
+    n_geos <- length(unique(plot_data$geo))
+    colors <- get_color_palette(max(3, n_geos), "peaceful")
     
-    # Create plot with enhanced styling
     p <- plot_ly()
     
     for (i in seq_along(unique(plot_data$geo))) {
@@ -885,195 +1375,91 @@ server <- function(input, output, session) {
           y = ~transformed_value,
           type = 'scatter',
           mode = 'lines',
-          line = list(
-            color = colors[color_idx], 
-            width = 3,
-            shape = 'spline',
-            smoothing = 1.3
-          ),
+          line = list(color = colors[color_idx], width = 2),
           name = unique(geo_df$display_name),
-          hovertemplate = paste(
-            '<b>%{fullData.name}</b><br>',
-            '📅 %{x|%b %d, %Y}<br>',
-            '📊 Value: %{y:,.0f}<br>',
-            '<extra></extra>'
-          ),
-          fill = ifelse(i == 1, 'tozeroy', 'none'),
-          fillcolor = ifelse(i == 1, paste0('rgba(', paste(col2rgb(colors[color_idx]), collapse = ','), ',0.1)'), NA)
+          hovertemplate = '<b>%{fullData.name}</b><br>%{x|%b %Y}<br>%{y:,.0f}<extra></extra>'
         )
     }
     
-    # Enhanced layout
-    p <- p %>%
+    # Get series label
+    series_label <- unique(df$series_label)[1]
+    naics_label <- unique(df$naics_label)[1]
+    
+    p %>%
       layout(
         title = list(
-          text = paste0("<span style='font-size: 24px; font-weight: 800;'>Business Formation Trends</span><br>",
-                        "<span style='font-size: 14px; color: #666;'>",
-                        "Series: ", unique(df$series_label)[1], " | ",
-                        "Sector: ", unique(df$naics_label)[1], "</span>"),
+          text = paste0("<b>", series_label, "</b><br><span style='font-size:11px;color:#666;'>",
+                        naics_label, " | ", 
+                        ifelse(input$sa == "A", "Seasonally Adjusted", "Not Seasonally Adjusted"),
+                        "</span>"),
           x = 0.05,
-          y = 0.95
+          y = 0.95,
+          font = list(size = 14)
         ),
         xaxis = list(
-          title = list(
-            text = "<span style='font-size: 14px; font-weight: 600;'>Date</span>",
-            standoff = 20
-          ),
-          gridcolor = 'rgba(230, 230, 230, 0.8)',
-          gridwidth = 1,
-          showgrid = TRUE,
-          tickformat = "%b %Y",
+          title = "",
+          gridcolor = 'rgba(230,230,230,0.6)',
+          tickformat = "%b<br>%Y",
           tickangle = 0,
+          dtick = "M12",
+          showgrid = TRUE,
           showline = TRUE,
-          linecolor = '#333',
-          linewidth = 2,
-          mirror = TRUE,
-          rangeslider = list(
-            visible = TRUE, 
-            thickness = 0.05,
-            bgcolor = 'rgba(102, 126, 234, 0.1)'
-          )
+          linecolor = '#ccc'
         ),
         yaxis = list(
-          title = list(
-            text = "<span style='font-size: 14px; font-weight: 600;'>Number of Formations</span>",
-            standoff = 20
-          ),
-          gridcolor = 'rgba(230, 230, 230, 0.8)',
-          gridwidth = 1,
-          showgrid = TRUE,
+          title = "",
+          gridcolor = 'rgba(230,230,230,0.6)',
           tickformat = ",",
+          showgrid = TRUE,
           showline = TRUE,
-          linecolor = '#333',
-          linewidth = 2,
-          mirror = TRUE,
-          zeroline = FALSE
+          linecolor = '#ccc'
         ),
-        hovermode = 'x unified',
-        plot_bgcolor = 'rgba(255, 255, 255, 1)',
-        paper_bgcolor = 'rgba(255, 255, 255, 1)',
-        font = list(family = "Segoe UI, Arial, sans-serif"),
-        margin = list(t = 100, l = 80, r = 40, b = 80),
+        hovermode = 'closest',
+        plot_bgcolor = 'white',
+        paper_bgcolor = 'white',
+        margin = list(t = 70, l = 50, r = 20, b = 50),
         legend = list(
           orientation = "h",
           y = -0.15,
           x = 0.5,
           xanchor = "center",
-          bgcolor = 'rgba(255, 255, 255, 0.9)',
-          bordercolor = 'rgba(0, 0, 0, 0.1)',
-          borderwidth = 1,
-          font = list(size = 12)
+          font = list(size = 10)
         ),
-        shapes = list(
-          list(
-            type = "rect",
-            xref = "paper",
-            yref = "paper",
-            x0 = 0,
-            x1 = 1,
-            y0 = 0,
-            y1 = 1,
-            line = list(color = 'rgba(0, 0, 0, 0.05)', width = 1)
-          )
-        )
-      ) %>%
-      config(
-        displayModeBar = TRUE,
-        displaylogo = FALSE,
-        modeBarButtonsToRemove = c('select2d', 'lasso2d', 'autoScale2d'),
-        toImageButtonOptions = list(
-          format = 'png',
-          filename = 'bfs_time_series',
-          height = 800,
-          width = 1200,
-          scale = 2
-        )
+        font = list(size = 11)
       )
-    
-    # Add annotations for latest value
-    if (length(unique(plot_data$geo)) == 1) {
-      latest_value <- tail(plot_data$transformed_value, 1)
-      latest_date <- tail(plot_data$date, 1)
-      
-      p <- p %>%
-        add_annotations(
-          x = latest_date,
-          y = latest_value,
-          text = paste0(format(latest_value, big.mark = ",")),
-          showarrow = TRUE,
-          arrowhead = 2,
-          arrowsize = 1,
-          arrowwidth = 2,
-          arrowcolor = colors[1],
-          ax = 20,
-          ay = -40,
-          font = list(size = 14, color = colors[1])
-        )
-    }
-    
-    return(p)
   })
   
   # =========================
-  # QUARTERLY SPARKLINE
+  # QUARTERLY PERFORMANCE
   # =========================
-  output$quarterly_sparkline <- renderPlotly({
+  output$quarterly_performance <- renderPlotly({
     df <- filtered_data()
     req(df, nrow(df) > 0)
     
     quarterly_data <- df %>%
-      mutate(
-        quarter_date = paste0(year(date), "-Q", quarter(date))
-      ) %>%
+      mutate(quarter_date = paste0("Q", quarter(date), " ", year(date))) %>%
       group_by(quarter_date) %>%
-      summarise(
-        total = sum(value, na.rm = TRUE),
-        .groups = 'drop'
-      ) %>%
-      arrange(quarter_date) %>%
-      mutate(
-        growth = (total / lag(total) - 1) * 100,
-        trend = ifelse(growth >= 0, "positive", "negative")
-      )
+      summarise(total = sum(value, na.rm = TRUE), .groups = 'drop') %>%
+      arrange(quarter_date)
     
-    # Create sparkline with small multiples
+    colors <- colorRampPalette(c("#4A90E2", "#50E3C2"))(nrow(quarterly_data))
+    
     plot_ly(quarterly_data) %>%
-      add_trace(
+      add_bars(
         x = ~quarter_date,
         y = ~total,
-        type = 'bar',
-        marker = list(
-          color = ~ifelse(trend == "positive", 'rgba(46, 204, 113, 0.8)', 'rgba(231, 76, 60, 0.8)'),
-          line = list(color = 'rgba(0,0,0,0.1)', width = 1)
-        ),
-        name = 'Quarterly Total',
-        hovertemplate = 'Quarter: %{x}<br>Total: %{y:,.0f}<br>Growth: %{customdata:.1f}%<extra></extra>',
-        customdata = ~growth
+        marker = list(color = colors, line = list(color = 'rgba(0,0,0,0.2)', width = 1)),
+        hovertemplate = 'Quarter: %{x}<br>Total: %{y:,.0f}<extra></extra>'
       ) %>%
       layout(
-        title = list(
-          text = "<span style='font-size: 18px; font-weight: 600;'>Quarterly Performance</span>",
-          x = 0.05
-        ),
-        xaxis = list(
-          title = "Quarter",
-          tickangle = 45,
-          showgrid = FALSE
-        ),
-        yaxis = list(
-          title = "Total Formations",
-          tickformat = ",",
-          showgrid = TRUE,
-          gridcolor = 'rgba(230, 230, 230, 0.5)'
-        ),
-        plot_bgcolor = 'rgba(255, 255, 255, 1)',
-        paper_bgcolor = 'rgba(255, 255, 255, 1)',
-        margin = list(t = 50, b = 80),
+        title = list(text = "<b>Quarterly Performance</b>", font = list(size = 13)),
+        xaxis = list(title = "", tickangle = 45, showgrid = FALSE),
+        yaxis = list(title = "", tickformat = ",", showgrid = TRUE),
+        plot_bgcolor = 'white',
+        paper_bgcolor = 'white',
+        margin = list(t = 40, b = 60),
         showlegend = FALSE,
-        hoverlabel = list(
-          bgcolor = 'white',
-          font = list(size = 12)
-        )
+        font = list(size = 11)
       )
   })
   
@@ -1081,103 +1467,68 @@ server <- function(input, output, session) {
   # TOP STATES BAR CHART
   # =========================
   output$top_states_bar <- renderPlotly({
-    req(input$bfs_date_range, input$bfs_series, input$bfs_naics)
-    
     df <- bfs_data()
-    if (is.null(df)) return(NULL)
+    req(df)
+    
+    date_range <- ranking_date_range()
+    start_date <- date_range$start
+    end_date <- date_range$end
+    
+    selected_series <- input$bfs_series
     
     top_states <- df %>%
       filter(
-        date >= input$bfs_date_range[1],
-        date <= input$bfs_date_range[2],
+        date >= start_date,
+        date <= end_date,
         !geo %in% exclude_codes,
-        series == input$bfs_series,
-        naics_sector == input$bfs_naics
+        nchar(geo) == 2,
+        series == selected_series,
+        naics_sector == "TOTAL",  # Always TOTAL for state rankings
+        sa == "A"
       ) %>%
       group_by(geo, geo_name, region) %>%
-      summarise(
-        total = sum(value, na.rm = TRUE),
-        avg_monthly = mean(value, na.rm = TRUE),
-        growth = ifelse(
-          n() >= 24,
-          (last(value) / nth(value, n() - 23) - 1) * 100,
-          NA
-        ),
-        .groups = 'drop'
-      ) %>%
-      filter(!is.na(total), total > 0) %>%
+      summarise(total = sum(value, na.rm = TRUE), .groups = 'drop') %>%
+      filter(!is.na(total), total > 0, !is.na(region)) %>%
       arrange(desc(total)) %>%
       slice_head(n = 10) %>%
-      mutate(
-        rank = row_number(),
-        share_of_total = total / sum(total) * 100,
-        label = paste0(geo_name, "<br><span style='font-size: 11px; color: #666;'>", geo, " • ", region, "</span>")
-      )
+      mutate(label = paste0(geo_name, " (", geo, ")"))
     
     if (nrow(top_states) == 0) {
       return(plot_ly() %>%
                add_annotations(
-                 text = "No state data available",
+                 text = "No data available for selected period",
                  x = 0.5, y = 0.5,
                  showarrow = FALSE,
-                 font = list(size = 16, color = '#999')
+                 font = list(size = 12)
                ))
     }
     
-    # Create gradient colors based on rank
-    colors <- colorRampPalette(c("#2E86AB", "#A23B72"))(nrow(top_states))
+    colors <- colorRampPalette(c("#1a237e", "#3949ab"))(nrow(top_states))
     
     plot_ly(top_states,
             x = ~total,
             y = ~reorder(label, total),
             type = 'bar',
             orientation = 'h',
-            marker = list(
-              color = colors,
-              line = list(color = 'rgba(0,0,0,0.2)', width = 1),
-              gradient = list(
-                type = 'vertical',
-                color = 'rgba(255, 255, 255, 0.3)'
-              )
-            ),
-            text = ~paste0("#", rank, " • ", format(round(total), big.mark = ",")),
-            textposition = 'outside',
-            textfont = list(color = '#2c3e50', size = 12),
-            hoverinfo = 'text',
-            hovertext = ~paste(
-              "<b>", geo_name, "</b><br>",
-              "Rank: #", rank, "<br>",
-              "Region: ", region, "<br>",
-              "Total: ", format(total, big.mark = ","), "<br>",
-              "Avg Monthly: ", format(round(avg_monthly), big.mark = ","), "<br>",
-              ifelse(!is.na(growth), paste("2Y Growth: ", sprintf("%+.1f%%", growth)), ""),
-              "<br>Share of Top 10: ", sprintf("%.1f%%", share_of_total)
-            )) %>%
+            marker = list(color = colors),
+            hovertemplate = '<b>%{y}</b><br>Total: %{x:,.0f}<br>Region: %{customdata}<extra></extra>',
+            customdata = ~region) %>%
       layout(
         title = list(
-          text = "<span style='font-size: 24px; font-weight: 800;'>Top 10 States by Business Formations</span>",
-          x = 0.05
+          text = paste0("<b>Top 10 States by ", 
+                        ifelse(selected_series == "BA_BA", "Business Applications", 
+                               ifelse(selected_series == "BF_BF", "Business Formations", "Formations")),
+                        "</b><br><span style='font-size:11px;'>",
+                        format(start_date, "%b %Y"), " - ", format(end_date, "%b %Y"), "</span>"),
+          font = list(size = 13)
         ),
-        xaxis = list(
-          title = "<span style='font-size: 14px; font-weight: 600;'>Total Formations</span>",
-          gridcolor = 'rgba(230, 230, 230, 0.8)',
-          tickformat = ",",
-          showgrid = TRUE
-        ),
-        yaxis = list(
-          title = "",
-          tickfont = list(size = 12),
-          showgrid = FALSE
-        ),
-        margin = list(l = 220, t = 80, r = 30, b = 50),
-        plot_bgcolor = 'rgba(255, 255, 255, 1)',
-        paper_bgcolor = 'rgba(255, 255, 255, 1)',
+        xaxis = list(title = "", tickformat = ",", showgrid = TRUE),
+        yaxis = list(title = "", tickfont = list(size = 10), showgrid = FALSE),
+        margin = list(l = 150, t = 50, r = 20, b = 30),
+        plot_bgcolor = 'white',
+        paper_bgcolor = 'white',
         showlegend = FALSE,
-        hoverlabel = list(
-          bgcolor = 'white',
-          bordercolor = 'rgba(0,0,0,0.1)',
-          font = list(size = 12)
-        )
+        font = list(size = 11)
       )
   })
   
@@ -1185,373 +1536,327 @@ server <- function(input, output, session) {
   # GEOGRAPHIC HEATMAP
   # =========================
   output$geographic_heatmap <- renderPlotly({
-    req(input$bfs_date_range)
-    
     df <- bfs_data()
-    if (is.null(df)) return(NULL)
+    req(df)
+    
+    date_range <- ranking_date_range()
+    start_date <- date_range$start
+    end_date <- date_range$end
+    
+    selected_series <- input$bfs_series
     
     state_data <- df %>%
       filter(
-        date >= input$bfs_date_range[1],
-        date <= input$bfs_date_range[2],
+        date >= start_date,
+        date <= end_date,
         !geo %in% exclude_codes,
         nchar(geo) == 2,
-        series == "BA_BA",
-        naics_sector == "TOTAL"
+        series == selected_series,
+        naics_sector == "TOTAL",  # Always TOTAL for state heatmap
+        sa == "A"
       ) %>%
       group_by(geo, geo_name, region) %>%
-      summarise(
-        total = sum(value, na.rm = TRUE),
-        per_capita = total / 1000000,  # Simplified per capita (per million residents)
-        .groups = 'drop'
-      ) %>%
-      filter(!is.na(total))
+      summarise(total = sum(value, na.rm = TRUE), .groups = 'drop') %>%
+      filter(!is.na(total), !is.na(region))
     
-    if (nrow(state_data) == 0) return(NULL)
+    if (nrow(state_data) == 0) {
+      return(plot_ly() %>%
+               add_annotations(
+                 text = "No state data available",
+                 x = 0.5, y = 0.5,
+                 showarrow = FALSE,
+                 font = list(size = 12)
+               ))
+    }
     
-    # Create sophisticated choropleth
-    plot_geo(state_data,
-             locationmode = 'USA-states',
-             hoverinfo = 'text') %>%
+    plot_geo(state_data, locationmode = 'USA-states') %>%
       add_trace(
         z = ~total,
         locations = ~geo,
-        text = ~paste(
-          "<b>", geo_name, "</b><br>",
-          "Region: ", region, "<br>",
-          "Total Applications: ", format(total, big.mark = ","), "<br>",
-          "Relative Intensity: ", sprintf("%.1f", per_capita)
-        ),
-        colorscale = 'Viridis',
-        reversescale = FALSE,
-        colorbar = list(
-          title = list(text = "Total Applications", side = "right"),
-          thickness = 20,
-          len = 0.8
-        ),
-        marker = list(
-          line = list(
-            color = 'white',
-            width = 1
-          )
-        )
+        text = ~paste(geo_name, "<br>Total: ", format(total, big.mark = ",")),
+        colorscale = list(c(0, '#E3F2FD'), c(1, '#1a237e')),
+        colorbar = list(title = "", thickness = 10),
+        marker = list(line = list(color = 'white', width = 1)),
+        type = 'choropleth'
       ) %>%
       layout(
-        title = list(
-          text = "<span style='font-size: 24px; font-weight: 800;'>Business Applications Heatmap</span><br><span style='font-size: 14px; color: #666;'>Intensity by State</span>",
-          x = 0.05,
-          y = 0.95
-        ),
+        title = list(text = "<b>Geographic Distribution</b>", font = list(size = 13)),
         geo = list(
           scope = 'usa',
           projection = list(type = 'albers usa'),
           showlakes = TRUE,
-          lakecolor = 'rgb(255, 255, 255)',
+          lakecolor = 'white',
           showland = TRUE,
-          landcolor = 'rgb(240, 240, 240)',
-          subunitcolor = 'rgb(255, 255, 255)',
-          countrycolor = 'rgb(255, 255, 255)',
-          countrywidth = 1,
-          subunitwidth = 1,
-          showframe = FALSE
+          landcolor = '#f5f5f5',
+          subunitcolor = 'white',
+          countrycolor = 'white'
         ),
-        margin = list(t = 100, b = 0, l = 0, r = 0),
-        paper_bgcolor = 'rgba(255, 255, 255, 1)',
-        plot_bgcolor = 'rgba(255, 255, 255, 1)'
+        margin = list(t = 40, b = 0, l = 0, r = 0),
+        paper_bgcolor = 'white',
+        font = list(size = 11)
       )
   })
   
   # =========================
-  # REGIONAL COMPARISON
+  # REGIONAL COMPARISON - ONLY MAIN REGIONS (Fixed Title)
   # =========================
   output$regional_comparison <- renderPlotly({
-    req(input$bfs_date_range)
-    
     df <- bfs_data()
-    if (is.null(df)) return(NULL)
+    req(df)
     
+    date_range <- ranking_date_range()
+    start_date <- date_range$start
+    end_date <- date_range$end
+    
+    selected_series <- input$bfs_series
+    
+    # Filter only for main regions: Northeast, Midwest, South, West
     regional_data <- df %>%
       filter(
-        date >= input$bfs_date_range[1],
-        date <= input$bfs_date_range[2],
+        date >= start_date,
+        date <= end_date,
         !geo %in% exclude_codes,
         nchar(geo) == 2,
-        series == input$bfs_series,
-        naics_sector == input$bfs_naics
+        series == selected_series,
+        naics_sector == "TOTAL",  # Always TOTAL for regional comparison
+        sa == "A",
+        region %in% c("Northeast", "Midwest", "South", "West")
       ) %>%
-      filter(!is.na(region)) %>%
-      group_by(region, year = year(date)) %>%
-      summarise(
-        total = sum(value, na.rm = TRUE),
-        .groups = 'drop'
-      )
+      mutate(year = year(date)) %>%
+      group_by(region, year) %>%
+      summarise(total = sum(value, na.rm = TRUE), .groups = 'drop') %>%
+      filter(!is.na(region), total > 0)
     
     if (nrow(regional_data) == 0) {
       return(plot_ly() %>%
                add_annotations(
                  text = "No regional data available",
                  x = 0.5, y = 0.5,
-                 showarrow = FALSE
+                 showarrow = FALSE,
+                 font = list(size = 12)
                ))
     }
     
-    plot_ly(regional_data,
-            x = ~year,
-            y = ~total,
-            color = ~region,
-            type = 'scatter',
-            mode = 'lines+markers',
-            line = list(width = 3, shape = 'spline'),
-            marker = list(size = 10, symbol = 'circle'),
-            hovertemplate = paste(
-              'Region: %{data.name}<br>',
-              'Year: %{x}<br>',
-              'Total: %{y:,.0f}<br>',
-              '<extra></extra>'
-            )) %>%
+    # Ensure we have all 4 main regions
+    all_regions <- c("Northeast", "Midwest", "South", "West")
+    colors <- setNames(c("#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4"), all_regions)
+    
+    # Create complete dataset with all years for each region
+    all_years <- seq(min(regional_data$year), max(regional_data$year), 1)
+    complete_data <- expand.grid(region = all_regions, year = all_years) %>%
+      left_join(regional_data, by = c("region", "year")) %>%
+      mutate(total = ifelse(is.na(total), 0, total))
+    
+    plot_ly() %>%
+      add_trace(
+        data = complete_data %>% filter(region == "Northeast"),
+        x = ~year,
+        y = ~total,
+        name = "Northeast",
+        type = 'scatter',
+        mode = 'lines+markers',
+        line = list(color = colors["Northeast"], width = 2),
+        marker = list(color = colors["Northeast"], size = 6),
+        hovertemplate = '<b>Northeast</b><br>Year: %{x}<br>Total: %{y:,.0f}<extra></extra>'
+      ) %>%
+      add_trace(
+        data = complete_data %>% filter(region == "Midwest"),
+        x = ~year,
+        y = ~total,
+        name = "Midwest",
+        type = 'scatter',
+        mode = 'lines+markers',
+        line = list(color = colors["Midwest"], width = 2),
+        marker = list(color = colors["Midwest"], size = 6),
+        hovertemplate = '<b>Midwest</b><br>Year: %{x}<br>Total: %{y:,.0f}<extra></extra>'
+      ) %>%
+      add_trace(
+        data = complete_data %>% filter(region == "South"),
+        x = ~year,
+        y = ~total,
+        name = "South",
+        type = 'scatter',
+        mode = 'lines+markers',
+        line = list(color = colors["South"], width = 2),
+        marker = list(color = colors["South"], size = 6),
+        hovertemplate = '<b>South</b><br>Year: %{x}<br>Total: %{y:,.0f}<extra></extra>'
+      ) %>%
+      add_trace(
+        data = complete_data %>% filter(region == "West"),
+        x = ~year,
+        y = ~total,
+        name = "West",
+        type = 'scatter',
+        mode = 'lines+markers',
+        line = list(color = colors["West"], width = 2),
+        marker = list(color = colors["West"], size = 6),
+        hovertemplate = '<b>West</b><br>Year: %{x}<br>Total: %{y:,.0f}<extra></extra>'
+      ) %>%
       layout(
         title = list(
-          text = "<span style='font-size: 24px; font-weight: 800;'>Regional Trends Over Time</span>",
-          x = 0.05
+          text = "<b>Regional Trends</b>",
+          font = list(size = 13)
         ),
         xaxis = list(
-          title = "<span style='font-size: 14px; font-weight: 600;'>Year</span>",
+          title = "",
           tickmode = 'linear',
-          dtick = 1
+          dtick = 1,
+          showgrid = TRUE,
+          gridcolor = 'rgba(230,230,230,0.5)'
         ),
         yaxis = list(
-          title = "<span style='font-size: 14px; font-weight: 600;'>Total Formations</span>",
-          tickformat = ","
+          title = "",
+          tickformat = ",",
+          showgrid = TRUE,
+          gridcolor = 'rgba(230,230,230,0.5)'
         ),
-        plot_bgcolor = 'rgba(255, 255, 255, 1)',
-        paper_bgcolor = 'rgba(255, 255, 255, 1)',
-        margin = list(t = 80, b = 80),
-        hovermode = 'x unified',
+        plot_bgcolor = 'white',
+        paper_bgcolor = 'white',
+        margin = list(t = 40, b = 50, l = 50, r = 20),
+        hovermode = 'closest',
         legend = list(
           orientation = "h",
           y = -0.15,
           x = 0.5,
-          xanchor = "center"
-        )
+          xanchor = "center",
+          font = list(size = 10)
+        ),
+        font = list(size = 11)
       )
   })
   
   # =========================
-  # INDUSTRY PIE CHART - Enhanced with Glossy Effect
+  # INDUSTRY PIE CHART (National Only)
   # =========================
   output$industry_pie <- renderPlotly({
-    req(input$bfs_date_range, input$geo_type == "nat_reg", input$bfs_geo_nat == "US")
+    req(input$bfs_year_range, geo_type() == "nat_reg", 
+        if (geo_type() == "nat_reg") input$bfs_geo_nat == "US" else FALSE)
     
     df <- bfs_data()
     if (is.null(df)) return(NULL)
     
     industry_data <- df %>%
       filter(
-        date >= input$bfs_date_range[1],
-        date <= input$bfs_date_range[2],
+        date >= as.Date(paste0(input$bfs_year_range[1], "-01-01")),
+        date <= as.Date(paste0(input$bfs_year_range[2], "-12-31")),
         geo == "US",
         series == input$bfs_series,
         naics_sector != "TOTAL"
       ) %>%
-      group_by(naics_label) %>%
-      summarise(
-        total = sum(value, na.rm = TRUE),
-        .groups = 'drop'
-      ) %>%
+      group_by(naics_short_label) %>%
+      summarise(total = sum(value, na.rm = TRUE), .groups = 'drop') %>%
       arrange(desc(total)) %>%
-      slice_head(n = 8) %>%
-      mutate(
-        percentage = total / sum(total) * 100,
-        label = paste0(naics_label, "<br>", sprintf("%.1f%%", percentage))
-      )
+      slice_head(n = 8)
     
-    # Create glossy colors
-    glossy_colors <- c('#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', 
-                       '#DDA0DD', '#98D8C8', '#F7DC6F')
+    colors <- get_color_palette(nrow(industry_data), "peaceful")
     
     plot_ly(industry_data,
-            labels = ~naics_label,
+            labels = ~naics_short_label,
             values = ~total,
             type = 'pie',
             hole = 0.4,
-            textinfo = 'label+percent',
+            textinfo = 'percent',
             hoverinfo = 'label+value+percent',
-            textposition = 'inside',
-            insidetextorientation = 'radial',
-            marker = list(
-              colors = glossy_colors,
-              line = list(color = '#FFFFFF', width = 2),
-              gradient = list(
-                type = 'radial',
-                color = 'rgba(255, 255, 255, 0.3)',
-                size = 0.8
-              )
-            ),
-            pull = rep(0.05, nrow(industry_data)),
-            rotation = 45) %>%
+            marker = list(colors = colors)) %>%
       layout(
-        title = list(
-          text = "<span style='font-size: 24px; font-weight: 800;'>Industry Distribution</span><br><span style='font-size: 14px; color: #666;'>Top 8 Sectors by Share</span>",
-          x = 0.5,
-          y = 0.95
-        ),
+        title = list(text = "<b>Industry Distribution (National Level)</b>", font = list(size = 13)),
         showlegend = TRUE,
-        legend = list(
-          orientation = "v",
-          x = 1.05,
-          y = 0.5,
-          font = list(size = 12)
-        ),
-        plot_bgcolor = 'rgba(255, 255, 255, 1)',
-        paper_bgcolor = 'rgba(255, 255, 255, 1)',
-        margin = list(t = 100, b = 50, l = 50, r = 150),
-        annotations = list(
-          list(
-            text = paste0("Total<br>", format(sum(industry_data$total), big.mark = ",")),
-            x = 0.5, y = 0.5,
-            font = list(size = 20, color = '#2c3e50'),
-            showarrow = FALSE
-          )
-        )
-      ) %>%
-      config(
-        displayModeBar = FALSE
+        legend = list(font = list(size = 10)),
+        plot_bgcolor = 'white',
+        paper_bgcolor = 'white',
+        margin = list(t = 40, b = 30, l = 30, r = 30),
+        font = list(size = 11)
       )
   })
   
   # =========================
-  # INDUSTRY TREND
+  # INDUSTRY TREND (National Only)
   # =========================
   output$industry_trend <- renderPlotly({
-    req(input$bfs_date_range, input$geo_type == "nat_reg", input$bfs_geo_nat == "US")
+    req(input$bfs_year_range, geo_type() == "nat_reg", 
+        if (geo_type() == "nat_reg") input$bfs_geo_nat == "US" else FALSE)
     
     df <- bfs_data()
     if (is.null(df)) return(NULL)
     
     industry_trend <- df %>%
       filter(
-        date >= input$bfs_date_range[1],
-        date <= input$bfs_date_range[2],
+        date >= as.Date(paste0(input$bfs_year_range[1], "-01-01")),
+        date <= as.Date(paste0(input$bfs_year_range[2], "-12-31")),
         geo == "US",
         series == input$bfs_series,
         naics_sector != "TOTAL"
       ) %>%
-      mutate(year_quarter = paste(year(date), "Q", quarter(date))) %>%
-      group_by(naics_label, year_quarter) %>%
-      summarise(
-        total = sum(value, na.rm = TRUE),
-        .groups = 'drop'
-      ) %>%
-      # Get top 6 industries by total
-      group_by(naics_label) %>%
+      mutate(year = year(date)) %>%
+      group_by(naics_short_label, year) %>%
+      summarise(total = sum(value, na.rm = TRUE), .groups = 'drop') %>%
+      group_by(naics_short_label) %>%
       mutate(total_industry = sum(total)) %>%
       ungroup() %>%
-      filter(naics_label %in% head(unique(naics_label[order(-total_industry)]), 6))
+      filter(naics_short_label %in% head(unique(naics_short_label[order(-total_industry)]), 5))
     
-    plot_ly(industry_trend,
-            x = ~year_quarter,
-            y = ~total,
-            color = ~naics_label,
-            type = 'scatter',
-            mode = 'lines',
-            line = list(width = 3, shape = 'spline', smoothing = 1.3),
-            hovertemplate = paste(
-              'Industry: %{data.name}<br>',
-              'Quarter: %{x}<br>',
-              'Total: %{y:,.0f}<br>',
-              '<extra></extra>'
-            )) %>%
+    colors <- get_color_palette(length(unique(industry_trend$naics_short_label)), "peaceful")
+    
+    plot_ly() %>%
+      add_trace(
+        data = industry_trend,
+        x = ~year,
+        y = ~total,
+        color = ~naics_short_label,
+        colors = colors,
+        type = 'scatter',
+        mode = 'lines',
+        line = list(width = 2),
+        hovertemplate = '<b>%{fullData.name}</b><br>Year: %{x}<br>Total: %{y:,.0f}<extra></extra>'
+      ) %>%
       layout(
-        title = list(
-          text = "<span style='font-size: 24px; font-weight: 800;'>Industry Trends Over Time</span><br><span style='font-size: 14px; color: #666;'>Top 6 Performing Sectors</span>",
-          x = 0.05
-        ),
-        xaxis = list(
-          title = "<span style='font-size: 14px; font-weight: 600;'>Quarter</span>",
-          tickangle = 45,
-          gridcolor = 'rgba(230, 230, 230, 0.8)'
-        ),
-        yaxis = list(
-          title = "<span style='font-size: 14px; font-weight: 600;'>Total Formations</span>",
-          tickformat = ","
-        ),
-        plot_bgcolor = 'rgba(255, 255, 255, 1)',
-        paper_bgcolor = 'rgba(255, 255, 255, 1)',
-        margin = list(t = 100, b = 100),
-        hovermode = 'x unified',
-        legend = list(
-          orientation = "h",
-          y = -0.2,
-          x = 0.5,
-          xanchor = "center",
-          font = list(size = 11)
-        )
+        title = list(text = "<b>Industry Trends Over Time (National Level)</b>", font = list(size = 13)),
+        xaxis = list(title = "", tickmode = 'linear', dtick = 1),
+        yaxis = list(title = "", tickformat = ","),
+        plot_bgcolor = 'white',
+        paper_bgcolor = 'white',
+        margin = list(t = 40, b = 50, l = 50, r = 20),
+        hovermode = 'closest',
+        legend = list(font = list(size = 10)),
+        font = list(size = 11)
       )
   })
   
   # =========================
-  # BOX PLOT
+  # STATISTICAL PLOTS
   # =========================
   output$box_plot <- renderPlotly({
     df <- filtered_data()
     req(df, nrow(df) > 0)
     
-    plot_ly(df,
-            y = ~value,
-            type = 'box',
-            boxpoints = 'all',
-            jitter = 0.3,
-            pointpos = -1.8,
-            name = "Distribution",
-            marker = list(
-              color = 'rgba(102, 126, 234, 0.6)',
-              size = 6,
-              line = list(color = 'rgba(102, 126, 234, 1)', width = 1)
-            ),
-            line = list(color = 'rgba(102, 126, 234, 1)'),
-            fillcolor = 'rgba(102, 126, 234, 0.2)') %>%
+    plot_ly(df, y = ~value, type = 'box',
+            marker = list(color = '#4A90E2'),
+            line = list(color = '#1a237e')) %>%
       layout(
-        title = list(
-          text = "<span style='font-size: 20px; font-weight: 600;'>Value Distribution</span>",
-          x = 0.05
-        ),
-        yaxis = list(
-          title = "Formations",
-          tickformat = ","
-        ),
-        plot_bgcolor = 'rgba(255, 255, 255, 1)',
-        paper_bgcolor = 'rgba(255, 255, 255, 1)',
-        margin = list(t = 50, b = 50),
-        showlegend = FALSE
+        title = list(text = "<b>Value Distribution</b>", font = list(size = 12)),
+        yaxis = list(title = "", tickformat = ","),
+        plot_bgcolor = 'white',
+        paper_bgcolor = 'white',
+        margin = list(t = 30, b = 30),
+        showlegend = FALSE,
+        font = list(size = 11)
       )
   })
   
-  # =========================
-  # HISTOGRAM
-  # =========================
   output$histogram <- renderPlotly({
     df <- filtered_data()
     req(df, nrow(df) > 0)
     
-    plot_ly(df,
-            x = ~value,
-            type = 'histogram',
-            nbinsx = 20,
-            marker = list(
-              color = 'rgba(102, 126, 234, 0.7)',
-              line = list(color = 'rgba(102, 126, 234, 1)', width = 1)
-            )) %>%
+    plot_ly(df, x = ~value, type = 'histogram',
+            marker = list(color = '#50E3C2', line = list(color = '#1a237e', width = 1))) %>%
       layout(
-        title = list(
-          text = "<span style='font-size: 20px; font-weight: 600;'>Value Frequency Distribution</span>",
-          x = 0.05
-        ),
-        xaxis = list(title = "Formations", tickformat = ","),
-        yaxis = list(title = "Frequency"),
-        plot_bgcolor = 'rgba(255, 255, 255, 1)',
-        paper_bgcolor = 'rgba(255, 255, 255, 1)',
-        margin = list(t = 50, b = 50),
-        bargap = 0.05
+        title = list(text = "<b>Frequency Distribution</b>", font = list(size = 12)),
+        xaxis = list(title = "", tickformat = ","),
+        yaxis = list(title = ""),
+        plot_bgcolor = 'white',
+        paper_bgcolor = 'white',
+        margin = list(t = 30, b = 30),
+        font = list(size = 11)
       )
   })
   
@@ -1567,50 +1872,30 @@ server <- function(input, output, session) {
         State = geo_name,
         `State Code` = geo,
         Year = year(date),
-        Month = month(date, label = TRUE, abbr = FALSE),
-        Quarter = quarter(date),
-        `Business Type` = series_label,
-        Industry = naics_label,
-        `Seasonal Adjustment` = sa_label,
+        Month = month(date, label = TRUE, abbr = TRUE),
+        `Business Type` = series_short,
+        Industry = naics_short_label,
         Value = round(value),
-        `Transformed Value` = round(transformed_value, 2)
+        `Transformed` = round(transformed_value, 2)
       ) %>%
-      select(Date = date, State, `State Code`, Year, Month, Quarter,
-             `Business Type`, Industry, `Seasonal Adjustment`,
-             Value, `Transformed Value`) %>%
-      arrange(desc(Date), State)
+      select(Date = date, State, `State Code`, Year, Month,
+             `Business Type`, Industry, Value, `Transformed`) %>%
+      arrange(desc(Date))
     
     datatable(
       display_df,
-      extensions = c('Buttons', 'Scroller', 'ColReorder'),
       options = list(
-        pageLength = 25,
-        dom = 'Bfrtip',
-        buttons = list(
-          'copy', 'csv', 'excel', 'pdf',
-          list(
-            extend = 'colvis',
-            text = 'Show/Hide Columns'
-          )
-        ),
+        pageLength = 15,
         scrollX = TRUE,
-        scrollY = "500px",
-        scroller = TRUE,
-        colReorder = TRUE
+        scrollY = "400px",
+        dom = 'tlip',
+        language = list(search = "Filter:")
       ),
-      class = 'display compact stripe hover row-border',
+      class = 'compact stripe hover',
       rownames = FALSE,
       filter = 'top'
     ) %>%
-      formatRound(columns = c('Value', 'Transformed Value'), 
-                  digits = 0) %>%
-      formatStyle('Value',
-                  background = styleColorBar(display_df$Value, 'rgba(102, 126, 234, 0.3)'),
-                  backgroundSize = '98% 88%',
-                  backgroundRepeat = 'no-repeat',
-                  backgroundPosition = 'center') %>%
-      formatDate(columns = 'Date', 
-                 method = 'toLocaleDateString')
+      formatRound(columns = c('Value', 'Transformed'), digits = 0)
   })
   
   # =========================
@@ -1626,110 +1911,29 @@ server <- function(input, output, session) {
         `Start Date` = min(date),
         `End Date` = max(date),
         `Months` = n(),
-        `Total Formations` = sum(value, na.rm = TRUE),
-        `Average Monthly` = mean(value, na.rm = TRUE),
-        `Median Monthly` = median(value, na.rm = TRUE),
-        `Std Deviation` = sd(value, na.rm = TRUE),
-        `Minimum` = min(value, na.rm = TRUE),
-        `Maximum` = max(value, na.rm = TRUE),
-        `Q1 (25th)` = quantile(value, 0.25, na.rm = TRUE),
-        `Q3 (75th)` = quantile(value, 0.75, na.rm = TRUE),
-        `IQR` = `Q3 (75th)` - `Q1 (25th)`,
-        `Coefficient of Variation` = sd(value, na.rm = TRUE) / mean(value, na.rm = TRUE) * 100,
+        `Total` = sum(value, na.rm = TRUE),
+        `Avg Monthly` = mean(value, na.rm = TRUE),
+        `Std Dev` = sd(value, na.rm = TRUE),
+        `Min` = min(value, na.rm = TRUE),
+        `Max` = max(value, na.rm = TRUE),
         .groups = 'drop'
       ) %>%
-      rename(
-        `State Code` = geo,
-        `State Name` = geo_name
-      ) %>%
-      arrange(desc(`Total Formations`))
+      rename(`State Code` = geo, `State Name` = geo_name) %>%
+      arrange(desc(`Total`))
     
     datatable(
       stats_df,
-      extensions = c('Buttons'),
       options = list(
         pageLength = 10,
-        dom = 'Bfrtip',
-        buttons = c('copy', 'csv', 'excel'),
-        scrollX = TRUE
+        scrollX = TRUE,
+        dom = 'tlip'
       ),
-      class = 'display compact stripe',
+      class = 'compact stripe',
       rownames = FALSE
     ) %>%
-      formatRound(columns = c('Average Monthly', 'Median Monthly', 'Std Deviation',
-                              'Minimum', 'Maximum', 'Q1 (25th)', 'Q3 (75th)', 'IQR',
-                              'Coefficient of Variation'), 
-                  digits = 2) %>%
-      formatRound(columns = 'Total Formations', 
-                  digits = 0) %>%
-      formatStyle('Total Formations',
-                  background = styleColorBar(stats_df$`Total Formations`, 'rgba(102, 126, 234, 0.3)')) %>%
-      formatDate(columns = c('Start Date', 'End Date'),
-                 method = 'toLocaleDateString')
+      formatRound(columns = c('Total', 'Avg Monthly', 'Std Dev', 'Min', 'Max'), 
+                  digits = 0)
   })
-  
-  # =========================
-  # DOWNLOAD HANDLERS
-  # =========================
-  
-  # Download CSV
-  output$download_csv <- downloadHandler(
-    filename = function() {
-      paste0("BFS_Data_", format(Sys.Date(), "%Y%m%d"), ".csv")
-    },
-    content = function(file) {
-      df <- filtered_data()
-      req(df)
-      
-      export_df <- df %>%
-        mutate(
-          State = geo_name,
-          `State Code` = geo,
-          Year = year(date),
-          Month = month(date),
-          `Business Type` = series_label,
-          Industry = naics_label
-        ) %>%
-        select(Date = date, State, `State Code`, Year, Month,
-               `Business Type`, Industry, Value = value,
-               `Transformed Value` = transformed_value)
-      
-      write.csv(export_df, file, row.names = FALSE)
-    }
-  )
-  
-  # Download Excel
-  output$download_excel <- downloadHandler(
-    filename = function() {
-      paste0("BFS_Data_", format(Sys.Date(), "%Y%m%d"), ".xlsx")
-    },
-    content = function(file) {
-      df <- filtered_data()
-      req(df)
-      
-      export_df <- df %>%
-        mutate(
-          State = geo_name,
-          `State Code` = geo,
-          Year = year(date),
-          Month = month(date),
-          `Business Type` = series_label,
-          Industry = naics_label
-        ) %>%
-        select(Date = date, State, `State Code`, Year, Month,
-               `Business Type`, Industry, Value = value,
-               `Transformed Value` = transformed_value)
-      
-      # Check if writexl is available
-      if (!requireNamespace("writexl", quietly = TRUE)) {
-        showNotification("Please install the writexl package: install.packages('writexl')",
-                         type = "error", duration = 10)
-        return()
-      }
-      
-      writexl::write_xlsx(export_df, file)
-    }
-  )
 }
 
 # =========================
